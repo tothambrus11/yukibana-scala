@@ -5,3 +5,10 @@ target/
 *.log
 packages/playground/public/assets*/
 .vendor/
+
+# Theia build output
+packages/theia-app/lib/
+packages/theia-app/src-gen/
+packages/theia-app/gen-*.mjs
+packages/theia-app/gen-*.js
+packages/theia-scala/lib/

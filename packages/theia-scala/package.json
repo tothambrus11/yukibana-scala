@@ -1,0 +1,35 @@
+{
+  "name": "@yukibana/theia-scala",
+  "version": "0.1.0",
+  "description": "Theia extension: compile and run Scala in the browser with the WebAssembly toolchain",
+  "license": "Apache-2.0",
+  "main": "lib/common/index.js",
+  "types": "lib/common/index.d.ts",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.75.0",
+    "@theia/editor": "1.75.0",
+    "@theia/filesystem": "1.75.0",
+    "@theia/markers": "1.75.0",
+    "@theia/monaco": "1.75.0",
+    "@theia/output": "1.75.0",
+    "@theia/workspace": "1.75.0",
+    "@yukibana/scala-engine": "file:../scala-engine",
+    "@theia/monaco-editor-core": "1.108.201"
+  },
+  "devDependencies": {
+    "typescript": "~5.4.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/scala-frontend-module"
+    }
+  ]
+}

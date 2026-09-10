@@ -9,8 +9,10 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
 
-const ROOT = resolve(new URL("..", import.meta.url).pathname);
-const HOME = "/packages/playground/public/index.html";
+const REPO_ROOT = resolve(new URL("..", import.meta.url).pathname);
+// ROOT=packages/theia-app/lib/frontend serves the built IDE instead of the repository.
+const ROOT = process.env.ROOT ? resolve(REPO_ROOT, process.env.ROOT) : REPO_ROOT;
+const HOME = process.env.HOME_PATH ?? (process.env.ROOT ? "/index.html" : "/packages/playground/public/index.html");
 const PORT = Number(process.env.PORT ?? 8080);
 
 const TYPES = {
@@ -53,5 +55,5 @@ createServer(async (request, response) => {
     response.writeHead(404, { "Content-Type": "text/plain" }).end(`Not found: ${pathname}`);
   }
 }).listen(PORT, () => {
-  console.log(`Yukibana playground: http://localhost:${PORT}/`);
+  console.log(`Yukibana serving ${ROOT} at http://localhost:${PORT}/`);
 });

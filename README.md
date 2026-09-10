@@ -28,7 +28,7 @@ Early prototype. See [docs/architecture.md](docs/architecture.md) for the design
 | **JavaScript output** for user programs | works |
 | **WebAssembly output** for user programs | works (our `linkScalaJSWasmAsync` bridge) |
 | End-to-end browser tests | works (7 cases, headless Chromium) |
-| Theia IDE shell (browser-only) | next |
+| Theia IDE shell (browser-only) | works: run/compile commands, Problems, Output, Scala syntax |
 | Interactive stdin, incremental compilation | planned |
 | Macro support | blocked upstream |
 
@@ -40,22 +40,53 @@ under 40 ms. A hello-world program links to a 153 KB `main.wasm`.
 | Path | Purpose |
 | --- | --- |
 | `packages/scala-engine/` | Framework-agnostic in-browser Scala toolchain (memory FS, compile, link, run) |
+| `packages/theia-app/` | The browser-only Theia IDE (no backend) |
+| `packages/theia-scala/` | Theia extension: commands, diagnostics, output, status bar |
 | `packages/playground/` | Minimal static host page used to develop and test the engine |
-| `scripts/` | Toolchain build + dev server scripts |
+| `toolchain/src-sjs/` | Scala sources compiled *into* the WebAssembly toolchain (the Wasm linker bridge) |
+| `scripts/` | Toolchain build, asset staging, dev server |
 | `e2e/` | Playwright tests that drive a real browser |
-| `docs/` | Research notes, architecture, build pipeline |
+| `docs/` | Research, architecture, build pipeline, IDE |
 
 ## Quick start
 
+Everything starts with the toolchain, which is built once from source (~16 minutes):
+
 ```bash
-# 1. Build (or fetch) the WebAssembly Scala toolchain assets — this is the slow part
+npm install
 ./scripts/build-compiler-assets.sh
+```
 
-# 2. Serve the playground
-node scripts/dev-server.mjs
+**The IDE:**
 
-# 3. Open http://localhost:8080
+```bash
+npm run build:ide
+./scripts/stage-ide-assets.sh
+ROOT=packages/theia-app/lib/frontend node scripts/dev-server.mjs   # http://localhost:8080
+```
+
+Press `F5` to run the open Scala file; the output appears in the Output view and compiler
+errors in Problems. `Scala: Run as WebAssembly` links your program to Wasm instead of JS.
+
+**The playground** (a minimal page used to develop and test the engine):
+
+```bash
+npm run start:playground     # http://localhost:8080
+```
+
+**Tests:**
+
+```bash
+npm run test:e2e             # engine, in headless Chromium
+node e2e/ide.mjs             # the built IDE, in headless Chromium
 ```
 
 A browser with WebAssembly JSPI is required (Chrome/Edge 137+, or Chromium with
 `--enable-experimental-webassembly-features`).
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — how the pieces fit together
+- [docs/build-pipeline.md](docs/build-pipeline.md) — building the WebAssembly toolchain
+- [docs/ide.md](docs/ide.md) — the Theia workbench and its extension
+- [docs/research.md](docs/research.md) — prior art, and why this approach
