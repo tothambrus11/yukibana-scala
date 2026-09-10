@@ -21,7 +21,7 @@ deploys. Nothing else in this repository triggers a deployment.
 
 | Setting | Value |
 | --- | --- |
-| Build command | `npm ci && ./scripts/fetch-toolchain.sh --compressed && npm run build:cloudflare` |
+| Build command | `npm ci && npm run build:cloudflare` |
 | Deploy command | `npx wrangler deploy` |
 | Root directory | `/` |
 
@@ -30,7 +30,7 @@ deploys. Nothing else in this repository triggers a deployment.
 | Setting | Value |
 | --- | --- |
 | Framework preset | **None** |
-| Build command | `npm ci && ./scripts/fetch-toolchain.sh --compressed && npm run build:cloudflare` |
+| Build command | `npm ci && npm run build:cloudflare` |
 | Build output directory | **`dist/cloudflare`** |
 | Root directory | `/` |
 
@@ -52,9 +52,11 @@ downloads a pinned release:
 ./scripts/fetch-toolchain.sh --compressed
 ```
 
-`--compressed` matters here: that variant stores `main.wasm` gzipped, which is what keeps the
-distribution under Cloudflare's per-file limit. `scripts/build-cloudflare.sh` refuses to
-assemble a site from the uncompressed variant rather than letting the upload fail at the end.
+`scripts/build-cloudflare.sh` fetches it for you when `vendor/` is empty, which is always the
+case on a hosted build - so the build command needs nothing but `npm ci && npm run
+build:cloudflare`. It takes the `--compressed` variant, which stores `main.wasm` gzipped and
+is what keeps the distribution under Cloudflare's per-file limit; handed the uncompressed one
+it refuses to assemble the site rather than letting a 31 MB file fail the upload at the end.
 
 Cloudflare then only bundles the frontend — about two minutes.
 

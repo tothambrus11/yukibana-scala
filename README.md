@@ -79,8 +79,7 @@ npm run start:playground     # http://localhost:8080
 **Deploy** (Cloudflare Pages or Workers - see [docs/deploy.md](docs/deploy.md)):
 
 ```bash
-./scripts/fetch-toolchain.sh --compressed   # the variant that fits Cloudflare's 25 MiB limit
-npm run build:cloudflare                    # -> dist/cloudflare, checked against those limits
+npm run build:cloudflare     # fetches the toolchain if needed -> dist/cloudflare
 npx wrangler deploy
 ```
 

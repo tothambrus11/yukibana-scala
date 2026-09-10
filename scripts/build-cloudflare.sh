@@ -31,6 +31,14 @@ WARN_FILE_BYTES=$((24 * 1024 * 1024))
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# A hosted build starts from a clean checkout, and the build command configured in the
+# dashboard is one more thing that can drift, so fetch the toolchain ourselves when it is
+# not already here. That makes `npm ci && npm run build:cloudflare` sufficient.
+if [[ ! -f "$TOOLCHAIN/manifest.json" ]]; then
+  log "No toolchain in $(basename "$(dirname "$TOOLCHAIN")")/ - fetching the pinned release"
+  "$REPO_ROOT/scripts/fetch-toolchain.sh" --compressed
+fi
+
 [[ -f "$TOOLCHAIN/manifest.json" ]] ||
   die "no toolchain at $TOOLCHAIN - run: scripts/fetch-toolchain.sh --compressed"
 
