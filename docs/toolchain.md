@@ -19,7 +19,7 @@ into `vendor/scala-toolchain-wasm/` (gitignored), refuses a manifest whose `sche
 does not understand, and prints what you got:
 
 ```
-    Scala 3.8.3-RC3, Scala.js 1.20.2, JDK 21.0.10, host 0.1.0
+    Scala 3.8.3-RC3, Scala.js 1.20.2, JDK 21.0.10, host 0.2.1
     built 2026-09-10T16:19:00Z from 357051c857d4
 ```
 
@@ -67,7 +67,7 @@ resolve relative to it.
 ## Upgrading
 
 ```bash
-TOOLCHAIN_VERSION=0.2.0 scripts/fetch-toolchain.sh   # try it
+TOOLCHAIN_VERSION=0.2.2 scripts/fetch-toolchain.sh   # try it
 npm run test:e2e && npm run test:ide                 # prove it
 ```
 
@@ -80,7 +80,7 @@ backends, which is exactly what a new compiler could break.
 Clone the toolchain repository and point this one at a locally built tarball:
 
 ```bash
-TOOLCHAIN_URL=../scala-toolchain-wasm/release/scala-toolchain-wasm-0.1.0.tar.gz \
+TOOLCHAIN_URL=../scala-toolchain-wasm/release/scala-toolchain-wasm-0.2.1.tar.gz \
   scripts/fetch-toolchain.sh
 ```
 
