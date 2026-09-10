@@ -1,0 +1,81 @@
+# Architecture
+
+## Design goal
+
+A Scala IDE that runs entirely in the browser tab: editing, compilation, linking and
+execution. No compile server, no round trip, works offline once cached.
+
+## The pipeline
+
+```
+ ┌─ Web Worker ─────────────────────────────────────────────────────────────┐
+ │                                                                          │
+ │  in-memory FS          scalac (WasmGC)            Scala.js linker        │
+ │  ┌──────────┐          ┌───────────────┐          ┌──────────────┐       │
+ │  │ /lib/*.jar│ ───────▶ │ dotty.tools   │ ──────▶  │ StandardImpl │ ────┐ │
+ │  │ /src/*.scala        │ .dotc.MainJS  │  .sjsir  │ .linker(...) │     │ │
+ │  └──────────┘          └───────────────┘          └──────────────┘     │ │
+ │       ▲                        │                                       │ │
+ │       └── rt.jar, scala-lib, scalajs-lib, runtime .sjsir               │ │
+ └────────────────────────────────────────────────────────────────────────┼─┘
+                                                                          │
+                                      ES module (JS today, Wasm planned) ─┘
+                                                    │
+                                                    ▼
+                                       executed in a sandboxed context
+```
+
+Both tools live in **one** WebAssembly module: the fork cross-compiles dotty with Scala.js
+and adds `org.scala-js:scalajs-linker` (published for Scala.js) as a dependency, exporting
+two entry points to JavaScript:
+
+| Export | Signature | Purpose |
+| --- | --- | --- |
+| `runScala3CompilerSJSAsync(args)` | `Promise<int>` | runs the compiler CLI; reads/writes the JS-hosted FS |
+| `linkScalaJSModuleAsync(irFiles)` | `Promise<{jsFileName, code}>` | links `.sjsir` into an ES module |
+
+The compiler reaches the file system through a global, `globalThis.__scala3CompilerSJSHostFS`,
+which the host supplies. It is a synchronous, Node-`fs`-shaped object
+(`existsSync`, `statSync`, `readdirSync`, `readFileSync`, `mkdirSync`, `writeFileSync`,
+`appendFileSync`, `rmSync`, `rmdirSync`, `unlinkSync`, `truncateSync`, `cwd`). That is the
+whole contract between the browser host and the compiler — everything else is data.
+
+## Layering
+
+The engine is deliberately independent of any IDE framework, so that the same core can be
+driven by the throwaway playground today and by Theia later.
+
+```
+packages/scala-engine     framework-agnostic: memory FS, toolchain, worker protocol
+        │
+        ├── packages/playground      minimal static page (dev + e2e target)
+        └── (planned) Theia extension  browser-only Theia app, Monaco editor, task/terminal wiring
+```
+
+### Why Theia, and why "browser-only"
+
+Theia supports a *browser-only* deployment: no Node backend, everything in the page. That is
+the only Theia mode compatible with this project's no-server premise; it gives us a real
+workbench (editors, layout, terminals, problems view, file explorer over an in-memory FS)
+without a server component. The engine's worker becomes the "build task" and "run" backend
+behind Theia's task API.
+
+## Decisions
+
+| # | Decision | Rationale |
+| --- | --- | --- |
+| 1 | Compiler runs as **Scala.js/WasmGC**, not a JVM-in-Wasm | Only route that is open-source, buildable from source, and whose *output* also runs natively in the browser |
+| 2 | Compiler and linker in **one module** | The linker is published for Scala.js; bundling avoids a second 10 MB+ download and a second runtime |
+| 3 | Everything in a **Web Worker** | A 31 MB WasmGC module and a multi-second compile must not block the UI thread |
+| 4 | Engine is **framework-agnostic** | Theia integration should not be entangled with compile/link logic; keeps the playground usable as a fast test harness |
+| 5 | User program execution will move to a **sandboxed iframe** | Today the linked module is imported into the compiler worker, so user code shares a realm with the toolchain |
+
+## Known risks
+
+- **Payload size.** ~60 MB of assets. Mitigations: Brotli (WasmGC compresses well), serving
+  a trimmed `rt.jar`, `fullLinkJS` instead of `fastLinkJS` for the compiler, streaming
+  compilation, and caching in the Cache API / OPFS.
+- **JSPI dependence** limits browser support to Chrome/Edge 137+ today.
+- **No macros** — this is upstream in the fork and affects real-world code more than it looks.
+- **Fork maintenance.** `scala3-compiler-sjs` is a research fork tracking dotty; our build
+  pins a commit and applies patches on top.

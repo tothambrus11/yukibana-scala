@@ -1,0 +1,7 @@
+{
+  "name": "@yukibana/playground",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Minimal static host page used to develop and test the Scala engine"
+}

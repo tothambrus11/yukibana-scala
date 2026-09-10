@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Yukibana playground</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="bar">
+      <span class="brand">Yukibana</span>
+      <span class="tag">Scala 3, compiled in your browser</span>
+      <span id="status" class="status" data-state="loading">Loading toolchain...</span>
+      <button id="run" type="button" disabled>Run</button>
+    </header>
+
+    <main class="panes">
+      <section class="pane">
+        <textarea id="source" spellcheck="false" autocomplete="off"></textarea>
+      </section>
+      <section class="pane pane-right">
+        <pre id="output" class="output"></pre>
+        <ul id="diagnostics" class="diagnostics"></ul>
+        <div id="timings" class="timings"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
