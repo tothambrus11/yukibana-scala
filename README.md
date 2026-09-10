@@ -17,13 +17,15 @@ Your program can be linked to JavaScript or, like the compiler itself, to WebAss
 
 ## Status
 
-Early prototype. See [docs/architecture.md](docs/architecture.md) for the design and
-[docs/build-pipeline.md](docs/build-pipeline.md) for how the WebAssembly toolchain is built.
+Early prototype. See [docs/architecture.md](docs/architecture.md) for the design. The compiler
+itself is built and released from
+[scala-toolchain-wasm](https://github.com/tothambrus11/scala-toolchain-wasm); this repository
+consumes a pinned release of it.
 
 | Stage | State |
 | --- | --- |
 | Scala 3 compiler → WebAssembly | works (via `scala3-compiler-sjs`, verified in Chromium 141) |
-| Reproducible from-source build of the toolchain | works (`scripts/build-compiler-assets.sh`, ~16 min) |
+| Toolchain built and released separately | works ([scala-toolchain-wasm](https://github.com/tothambrus11/scala-toolchain-wasm)) |
 | Compile + link + run in-browser | works, multi-file |
 | **JavaScript output** for user programs | works |
 | **WebAssembly output** for user programs | works (our `linkScalaJSWasmAsync` bridge) |
@@ -41,22 +43,21 @@ toolchain once: 62 MB raw, ~38 MB gzipped (the 31 MB compiler module compresses 
 
 | Path | Purpose |
 | --- | --- |
-| `packages/scala-engine/` | Framework-agnostic in-browser Scala toolchain (memory FS, compile, link, run) |
 | `packages/theia-app/` | The browser-only Theia IDE (no backend) |
 | `packages/theia-scala/` | Theia extension: commands, diagnostics, output, status bar |
-| `packages/playground/` | Minimal static host page used to develop and test the engine |
-| `toolchain/src-sjs/` | Scala sources compiled *into* the WebAssembly toolchain (the Wasm linker bridge) |
-| `scripts/` | Toolchain build, asset staging, dev server |
+| `packages/playground/` | Minimal static page used to develop and test against the toolchain |
+| `vendor/scala-toolchain-wasm/` | The pinned toolchain release (fetched, gitignored) |
+| `scripts/` | Toolchain fetch, staging, deploy build, dev server |
 | `e2e/` | Playwright tests that drive a real browser |
 | `docs/` | Research, architecture, build pipeline, IDE |
 
 ## Quick start
 
-Everything starts with the toolchain, which is built once from source (~16 minutes):
+Everything starts with the toolchain, downloaded as a pinned release:
 
 ```bash
 npm install
-./scripts/build-compiler-assets.sh
+./scripts/fetch-toolchain.sh
 ```
 
 **The IDE:**
@@ -79,9 +80,13 @@ npm run start:playground     # http://localhost:8080
 **Deploy** (Cloudflare Pages or Workers - see [docs/deploy.md](docs/deploy.md)):
 
 ```bash
-npm run build:cloudflare     # -> dist/cloudflare, checked against Cloudflare's limits
-npx wrangler deploy          # or: wrangler pages deploy dist/cloudflare
+./scripts/fetch-toolchain.sh --compressed   # the variant that fits Cloudflare's 25 MiB limit
+npm run build:cloudflare                    # -> dist/cloudflare, checked against those limits
+npx wrangler deploy
 ```
+
+Pushing to `main` deploys automatically once `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` are set as repository secrets.
 
 **Tests:**
 
@@ -96,7 +101,7 @@ A browser with WebAssembly JSPI is required (Chrome/Edge 137+, or Chromium with
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit together
-- [docs/build-pipeline.md](docs/build-pipeline.md) — building the WebAssembly toolchain
+- [docs/toolchain.md](docs/toolchain.md) — consuming, pinning and upgrading the toolchain
 - [docs/ide.md](docs/ide.md) — the Theia workbench and its extension
 - [docs/deploy.md](docs/deploy.md) — deploying to Cloudflare Pages / Workers
 - [docs/research.md](docs/research.md) — prior art, and why this approach

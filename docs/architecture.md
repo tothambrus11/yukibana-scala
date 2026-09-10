@@ -62,11 +62,14 @@ The engine is deliberately independent of any IDE framework, so that the same co
 driven by the throwaway playground today and by Theia later.
 
 ```
-packages/scala-engine     framework-agnostic: memory FS, toolchain, worker protocol
-        │
+scala-toolchain-wasm      a separate repository: the compiler, and the host runtime that drives it
+        │  (consumed as a pinned release, unpacked into vendor/)
         ├── packages/playground      minimal static page (dev + e2e target)
-        └── (planned) Theia extension  browser-only Theia app, Monaco editor, task/terminal wiring
+        └── packages/theia-scala     the Theia extension, in packages/theia-app
 ```
+
+Both the playground and the IDE import the **same** host runtime out of the distribution, so
+they cannot disagree about how compilation works. See [toolchain.md](toolchain.md).
 
 ### Why Theia, and why "browser-only"
 
@@ -83,7 +86,7 @@ behind Theia's task API.
 | 1 | Compiler runs as **Scala.js/WasmGC**, not a JVM-in-Wasm | Only route that is open-source, buildable from source, and whose *output* also runs natively in the browser |
 | 2 | Compiler and linker in **one module** | The linker is published for Scala.js; bundling avoids a second 10 MB+ download and a second runtime |
 | 3 | Everything in a **Web Worker** | A 31 MB WasmGC module and a multi-second compile must not block the UI thread |
-| 4 | Engine is **framework-agnostic** | Theia integration should not be entangled with compile/link logic; keeps the playground usable as a fast test harness |
+| 4 | The engine lives **in the toolchain repository** | It exists to implement the compiler bundle's contracts, so it versions with the bundle, not with the IDE |
 | 5 | User program execution will move to a **sandboxed iframe** | Today the linked module is imported into the compiler worker, so user code shares a realm with the toolchain |
 | 6 | Our compiler-side code is **added, not patched** | `toolchain/src-sjs/` is copied into the fork checkout, so the fork can move without conflicts |
 

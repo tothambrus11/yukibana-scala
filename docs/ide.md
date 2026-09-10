@@ -8,7 +8,7 @@ a static asset.
 ```
 packages/theia-app      the browser-only Theia application (what you deploy)
 packages/theia-scala    our Theia extension: commands, diagnostics, output, status
-packages/scala-engine   the compiler host - loaded at runtime, not bundled
+vendor/scala-toolchain-wasm   the pinned toolchain release, including its host runtime
 ```
 
 ## What the extension contributes
@@ -29,8 +29,8 @@ disk, so Run reflects what you see without saving first.
 ## How the engine is loaded
 
 The Theia frontend does **not** bundle the engine or the 62 MB toolchain. The extension
-imports `./scala-engine/index.js` at runtime and the engine fetches `./assets/manifest.json`
-from there, both configurable through preferences.
+imports `./toolchain/host/index.js` at runtime and the engine fetches
+`./toolchain/manifest.json` from there, both configurable through preferences.
 
 That keeps webpack out of the picture for the parts that are plain ES modules and large
 binaries, lets the toolchain be replaced (or served from a CDN) without rebuilding the IDE,
@@ -43,9 +43,9 @@ the bundler would try to resolve a path that only exists at runtime.
 ## Build and run
 
 ```bash
-scripts/build-compiler-assets.sh    # once: build the WebAssembly toolchain (~16 min)
+scripts/fetch-toolchain.sh          # once: download the pinned toolchain release
 npm run build:ide                   # compile the extension, bundle the Theia frontend
-scripts/stage-ide-assets.sh         # link engine + toolchain into the built frontend
+scripts/stage-ide-assets.sh         # link the toolchain into the built frontend
 ROOT=packages/theia-app/lib/frontend node scripts/dev-server.mjs
 # http://localhost:8080
 ```

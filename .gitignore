@@ -19,3 +19,6 @@ dist/
 # Compressed siblings a production bundler may drop next to sources
 *.js.gz
 *.wasm.gz
+
+# Toolchain release, fetched by scripts/fetch-toolchain.sh
+vendor/

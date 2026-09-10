@@ -24,17 +24,17 @@ export const scalaPreferenceSchema: PreferenceSchema = {
         },
         'yukibana.toolchainManifest': {
             type: 'string',
-            default: './assets/manifest.json',
+            default: './toolchain/manifest.json',
             description: 'Location of the WebAssembly toolchain manifest, relative to the application.',
         },
         'yukibana.engineModule': {
             type: 'string',
-            default: './scala-engine/index.js',
+            default: './toolchain/host/index.js',
             description: 'Location of the browser Scala engine module.',
         },
         'yukibana.engineWorker': {
             type: 'string',
-            default: './scala-engine/worker.js',
+            default: './toolchain/host/worker.js',
             description: 'Location of the browser Scala engine worker.',
         },
     },

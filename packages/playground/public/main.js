@@ -1,4 +1,4 @@
-import { ScalaEngine } from "../../scala-engine/src/index.js";
+import { ScalaEngine } from "/vendor/scala-toolchain-wasm/host/index.js";
 
 const SAMPLE = `@main def hello(): Unit =
   val squares = (1 to 5).map(n => n * n)
@@ -16,9 +16,11 @@ const targetEl = document.getElementById("target");
 
 sourceEl.value = SAMPLE;
 
+// The toolchain is a pinned release of scala-toolchain-wasm, fetched into vendor/ by
+// scripts/fetch-toolchain.sh - the same distribution the IDE ships.
 const engine = new ScalaEngine({
-  workerUrl: new URL("../../scala-engine/src/worker.js", import.meta.url),
-  manifestUrl: new URL("./assets/manifest.json", document.baseURI).href,
+  workerUrl: new URL("/vendor/scala-toolchain-wasm/host/worker.js", location.origin),
+  manifestUrl: new URL("/vendor/scala-toolchain-wasm/manifest.json", location.origin).href,
 });
 
 const STAGES = {

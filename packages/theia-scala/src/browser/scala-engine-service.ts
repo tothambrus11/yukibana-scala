@@ -23,9 +23,11 @@ export interface EngineStatus {
 }
 
 /**
- * The engine is loaded at runtime from static files rather than bundled into the Theia
- * frontend. That keeps the 60 MB toolchain (and the worker that drives it) out of the
- * webpack graph, and lets the engine be replaced without rebuilding the IDE.
+ * The engine is loaded at runtime from the toolchain distribution rather than bundled into
+ * the Theia frontend. That keeps the 62 MB toolchain (and the worker that drives it) out of
+ * the webpack graph, and lets the toolchain be upgraded without rebuilding the IDE - the
+ * host runtime ships inside the distribution, so it can never drift from the compiler
+ * bundle whose contracts it implements.
  *
  * `import()` is hidden from TypeScript and webpack on purpose: TypeScript would rewrite it to
  * `require` under `module: commonjs`, and webpack would try to resolve and bundle a path that
@@ -73,15 +75,15 @@ export class ScalaEngineService {
     }
 
     protected get moduleUrl(): string {
-        return this.preferences.get<string>('yukibana.engineModule', './scala-engine/index.js');
+        return this.preferences.get<string>('yukibana.engineModule', './toolchain/host/index.js');
     }
 
     protected get workerUrl(): string {
-        return this.preferences.get<string>('yukibana.engineWorker', './scala-engine/worker.js');
+        return this.preferences.get<string>('yukibana.engineWorker', './toolchain/host/worker.js');
     }
 
     protected get manifestUrl(): string {
-        return this.preferences.get<string>('yukibana.toolchainManifest', './assets/manifest.json');
+        return this.preferences.get<string>('yukibana.toolchainManifest', './toolchain/manifest.json');
     }
 
     /** Load the toolchain, reusing an in-flight load. */

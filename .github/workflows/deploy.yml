@@ -1,0 +1,58 @@
+name: Deploy
+
+# The IDE is static files, so deploying is: fetch the pinned toolchain, bundle the frontend,
+# prove the bundle works in a real browser, upload. The compiler is not built here - it comes
+# from a scala-toolchain-wasm release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # The `-compressed` variant stores main.wasm gzipped, which is what keeps the
+      # distribution under Cloudflare's 25 MiB per-file limit.
+      - name: Fetch the toolchain
+        run: ./scripts/fetch-toolchain.sh --compressed
+
+      - run: npx playwright install --with-deps chromium
+
+      - name: Build the deployable site
+        run: npm run build:cloudflare
+
+      # The deploy build is the only place the gzipped-compiler path is exercised, so test
+      # exactly what is about to be uploaded.
+      - name: Verify the bundle in a browser
+        run: FRONTEND=dist/cloudflare node e2e/ide.mjs
+
+      - name: Deploy to Cloudflare
+        # Builds and tests still run without secrets; only the upload is skipped.
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Note a skipped deploy
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN == ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          echo "Built and verified, but not deployed: set the CLOUDFLARE_API_TOKEN and" >> "$GITHUB_STEP_SUMMARY"
+          echo "CLOUDFLARE_ACCOUNT_ID repository secrets to enable deployment." >> "$GITHUB_STEP_SUMMARY"

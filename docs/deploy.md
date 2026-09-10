@@ -18,7 +18,7 @@ size limit, so a bad deploy is caught before upload rather than after.
 | --- | --- |
 | Framework preset | **None** |
 | Root directory | `/` (the repository root) |
-| Build command | `npm ci && npm run build:cloudflare` |
+| Build command | `npm ci && ./scripts/fetch-toolchain.sh --compressed && npm run build:cloudflare` |
 | Build output directory | **`dist/cloudflare`** |
 | Environment variables | `NODE_VERSION=22`, and `TOOLCHAIN_URL` (see below) |
 
@@ -29,52 +29,37 @@ npm run build:cloudflare
 npx wrangler deploy          # or: npm run deploy:cloudflare
 ```
 
-## The one thing that needs planning: the toolchain
+## The toolchain is downloaded, not built
 
-The 62 MB WebAssembly toolchain is built by `scripts/build-compiler-assets.sh`, which needs a
-**JDK and sbt** and takes 8-16 minutes. Cloudflare's build image has neither, and the build
-would be uncomfortably close to the 20-minute timeout anyway. Pick one of these:
-
-### Direct upload (simplest, recommended to start)
-
-Build locally - where you already have the toolchain - and push the finished directory:
+Building the compiler needs a JDK, sbt and 8-16 minutes, which does not fit Cloudflare's
+20-minute build image — and does not need to. It is built and released from
+[scala-toolchain-wasm](https://github.com/tothambrus11/scala-toolchain-wasm); the deploy build
+downloads a pinned release:
 
 ```bash
-npm run build:cloudflare
-npx wrangler pages deploy dist/cloudflare --project-name yukibana
-# or, for Workers: npx wrangler deploy
+./scripts/fetch-toolchain.sh --compressed
 ```
 
-No Cloudflare build step is involved, so nothing can time out.
+`--compressed` matters here: that variant stores `main.wasm` gzipped, which is what keeps the
+distribution under Cloudflare's per-file limit. `scripts/build-cloudflare.sh` refuses to
+assemble a site from the uncompressed variant rather than letting the upload fail at the end.
 
-### Git-connected builds with a prebuilt toolchain
-
-Publish the toolchain once as a tarball (a GitHub Release asset, or R2):
-
-```bash
-tar -czf yukibana-toolchain.tar.gz -C packages/playground/public assets
-```
-
-Then set `TOOLCHAIN_URL` in the Pages project to that URL. The build script downloads and
-unpacks it when `packages/playground/public/assets` is absent, so Cloudflare only has to
-bundle the frontend - about two minutes.
-
-Rebuild and republish that tarball whenever the pinned compiler commit changes.
+Cloudflare then only bundles the frontend — about two minutes.
 
 ## What the build produces
 
 ```
 dist/cloudflare/
   index.html, bundle.js, bundle.css, editor.worker.js, ...   the Theia frontend
-  scala-engine/*.js                                          the compiler host
-  assets/manifest.json                                       toolchain manifest
-  assets/compiler/main.wasm.gz                               the compiler, gzipped
-  assets/compiler/main.js, __loader.js
-  assets/classpath/*.jar, assets/runtime/runtime-sjsir.zip
+  toolchain/manifest.json                                    the pinned release
+  toolchain/compiler/main.wasm.gz                            the compiler, gzipped
+  toolchain/compiler/main.js, __loader.js
+  toolchain/classpath/*.jar, toolchain/runtime/runtime-sjsir.zip
+  toolchain/host/*.js                                        the runtime that drives it
   _headers                                                   cache policy
 ```
 
-36 files, ~75 MB stored, largest file 14.2 MiB.
+37 files, ~75 MB stored, largest file 14.2 MiB.
 
 ### Why the compiler is stored gzipped
 
@@ -82,7 +67,8 @@ dist/cloudflare/
 pre-compressed and declare `Content-Encoding: gzip` in `_headers` - does not work on
 Cloudflare, which strips that header and manages compression itself.
 
-So the build stores `main.wasm.gz` (6.0 MiB) and records the substitution in the manifest:
+So the toolchain's `-compressed` release stores `main.wasm.gz` (6.0 MiB) and records the
+substitution in its manifest:
 
 ```json
 "compressed": { "./compiler/main.wasm": { "url": "./compiler/main.wasm.gz", "encoding": "gzip" } }
@@ -91,7 +77,7 @@ So the build stores `main.wasm.gz` (6.0 MiB) and records the substitution in the
 The compiler bundle's own loader asks for `main.wasm` and cannot be told otherwise, so the
 engine installs a narrow `fetch` shim for exactly those URLs and pipes the response through
 `DecompressionStream`. It stays streaming, so `WebAssembly.instantiateStreaming` still
-compiles as bytes arrive. See `packages/scala-engine/src/compressed-assets.js`.
+compiles as bytes arrive. See `host/src/compressed-assets.js` in the toolchain repository.
 
 Source maps (40 MB+ each) are excluded from the deploy directory - they would fail the
 upload, and the production bundle is 11.4 MB rather than the 23 MB development one.
@@ -100,9 +86,24 @@ upload, and the production bundle is 11.4 MB rather than the 23 MB development o
 
 - **No COOP/COEP needed.** Nothing here uses `SharedArrayBuffer`.
 - `.wasm` is served as `application/wasm` by Cloudflare automatically.
-- `_headers` sets long-lived caching for `/assets/*` so a repeat visit re-downloads nothing.
+- `_headers` sets immutable caching for `/toolchain/*` — a release never changes, so a repeat
+  visit re-downloads nothing.
 - Visitors need **WebAssembly JSPI**: Chrome/Edge 137+. Other engines get a clear message
   naming the missing features rather than a broken page.
+
+## Continuous deployment
+
+`.github/workflows/deploy.yml` runs the same steps on every push to `main`: fetch the pinned
+toolchain, build, verify the bundle in headless Chromium, then deploy with Wrangler. It needs
+two repository secrets:
+
+| Secret | Where to get it |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages → Account ID |
+
+Without them the workflow still builds and tests, and skips only the deploy step — so a fork
+or a first push does not fail on missing secrets.
 
 ## Verifying a build before you ship it
 

@@ -4,7 +4,7 @@
  *
  *   node e2e/playground.mjs
  *
- * Requires the toolchain assets (scripts/build-compiler-assets.sh) and a Chromium with JSPI.
+ * Requires the toolchain (scripts/fetch-toolchain.sh) and a Chromium with JSPI.
  */
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
@@ -37,7 +37,7 @@ async function startServer() {
 
   for (let attempt = 0; attempt < 50; attempt++) {
     try {
-      const response = await fetch(`${BASE_URL}packages/playground/public/assets/manifest.json`);
+      const response = await fetch(`${BASE_URL}vendor/scala-toolchain-wasm/manifest.json`);
       if (response.ok) return server;
     } catch {
       // not up yet
@@ -46,7 +46,7 @@ async function startServer() {
   }
 
   server.kill();
-  throw new Error("dev server did not start");
+  throw new Error("dev server did not start (did you run scripts/fetch-toolchain.sh?)");
 }
 
 const cases = [
@@ -196,10 +196,10 @@ try {
       for (const target of targets) {
         const result = await page.evaluate(
           async ({ sources, linkTarget }) => {
-            const { ScalaEngine } = await import("/packages/scala-engine/src/index.js");
+            const { ScalaEngine } = await import("/vendor/scala-toolchain-wasm/host/index.js");
             globalThis.__engine ??= new ScalaEngine({
-              workerUrl: new URL("/packages/scala-engine/src/worker.js", location.origin),
-              manifestUrl: new URL("/packages/playground/public/assets/manifest.json", location.origin).href,
+              workerUrl: new URL("/vendor/scala-toolchain-wasm/host/worker.js", location.origin),
+              manifestUrl: new URL("/vendor/scala-toolchain-wasm/manifest.json", location.origin).href,
             });
             await globalThis.__engine.init();
             return globalThis.__engine.run(sources, { target: linkTarget });

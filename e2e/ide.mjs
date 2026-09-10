@@ -4,8 +4,8 @@
  *
  *   node e2e/ide.mjs
  *
- * Requires a built IDE with staged assets:
- *   npm run build:ide && scripts/stage-ide-assets.sh
+ * Requires a built IDE with the toolchain staged:
+ *   scripts/fetch-toolchain.sh && npm run build:ide && scripts/stage-ide-assets.sh
  */
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
@@ -52,7 +52,7 @@ async function startServer() {
 
     for (let attempt = 0; attempt < 50; attempt++) {
         try {
-            if ((await fetch(`${BASE_URL}assets/manifest.json`)).ok) return server;
+            if ((await fetch(`${BASE_URL}toolchain/manifest.json`)).ok) return server;
         } catch {
             // not up yet
         }
