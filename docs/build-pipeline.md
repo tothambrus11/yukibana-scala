@@ -97,18 +97,31 @@ script packages `target/scala3-compiler-sjs/node-libs/scala-lib` instead, the me
 class directory (3,658 `.class` + 941 `.tasty`), which is what the upstream Node-hosted test
 uses. The script fails loudly if that directory does not contain `Predef.tasty`.
 
-## Payload reduction (not yet done)
+## Payload
 
-Ideas in rough order of expected value:
+WasmGC compresses very well, and the dev server (`scripts/dev-server.mjs`) gzips on the fly
+and caches the result:
 
-1. **Serve compressed.** WasmGC compresses well; Brotli should take `main.wasm` to a few MB.
-   This is a server/CDN setting, not a build change.
-2. **`fullLinkJS`.** The compiler is currently `fastLinkJS`-linked (no whole-program
-   optimisation). A full link should cut the module substantially at the cost of build time.
-3. **Trim `rt.jar`.** 15 MB of `java.base` where a browser program uses a fraction.
-4. **Cache in the browser.** Cache API or OPFS so the 62 MB is a one-time cost per version.
-5. **Split the linker out** of the compiler module so a re-run that only re-links does not
-   need the compiler resident.
+| Asset | Raw | Over the wire (gzip) |
+| --- | --- | --- |
+| `compiler/main.wasm` | 31 MB | **6.4 MB** |
+| `classpath/rt.jar` | 15 MB | 15 MB (already deflated) |
+| `classpath/scala-lib.jar` | 8.8 MB | 8.8 MB (already deflated) |
+| `runtime/runtime-sjsir.zip` | 7.0 MB | 7.0 MB (already deflated) |
+| first load, total | ~62 MB | **~38 MB** |
+
+Remaining ideas, in rough order of expected value:
+
+1. **Trim `rt.jar`** - now the largest single item. 15 MB of `java.base` where a browser
+   program uses a fraction of it.
+2. **Repack the jars.** They are stored deflated at a low level and are opaque to gzip;
+   recompressing their entries (or shipping them as a single Brotli-compressed archive the
+   engine unpacks) should cut the classpath substantially.
+3. **Cache in the browser.** Cache API or OPFS, so a repeat visit costs nothing.
+4. **`fullLinkJS`** for the compiler itself: it is currently `fastLinkJS`-linked, with no
+   whole-program optimisation.
+5. **Split the linker out** of the compiler module so a re-link does not need the compiler
+   resident.
 
 ## Reproducing just the staging step
 

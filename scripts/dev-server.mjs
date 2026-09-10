@@ -1,13 +1,23 @@
 /**
- * Static dev server for the playground.
+ * Static dev server for the playground and the built IDE.
  *
- * Serves the repository root so that the playground page can import the engine sources
- * directly (no bundler in the loop), with the MIME types WebAssembly streaming needs.
+ * Serves the repository root (so the playground can import the engine sources directly, no
+ * bundler in the loop) or, with ROOT set, a built frontend. Two things matter here that a
+ * generic static server would get wrong:
+ *
+ *   - WebAssembly streaming instantiation needs `application/wasm`
+ *   - the toolchain is 62 MB uncompressed, and `main.wasm` alone goes 31 MB -> 6 MB with
+ *     gzip, so responses are compressed and the result is cached in memory
  */
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
+import { gzip } from "node:zlib";
+import { promisify } from "node:util";
+
+const gzipAsync = promisify(gzip);
 
 const REPO_ROOT = resolve(new URL("..", import.meta.url).pathname);
 // ROOT=packages/theia-app/lib/frontend serves the built IDE instead of the repository.
@@ -28,6 +38,26 @@ const TYPES = {
   ".svg": "image/svg+xml",
 };
 
+// Jars and zips are already deflated; compressing them again only burns CPU.
+const COMPRESSIBLE = new Set([".html", ".js", ".mjs", ".css", ".json", ".wasm", ".map", ".svg"]);
+const MAX_CACHED_BYTES = 512 * 1024 * 1024;
+
+const compressed = new Map();
+let cachedBytes = 0;
+
+async function gzipCached(filePath, info) {
+  const key = `${filePath}:${info.mtimeMs}:${info.size}`;
+  const hit = compressed.get(key);
+  if (hit) return hit;
+
+  const body = await gzipAsync(await readFile(filePath), { level: 6 });
+  if (cachedBytes + body.length <= MAX_CACHED_BYTES) {
+    compressed.set(key, body);
+    cachedBytes += body.length;
+  }
+  return body;
+}
+
 createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
   const pathname = url.pathname === "/" ? HOME : decodeURIComponent(url.pathname);
@@ -45,11 +75,21 @@ createServer(async (request, response) => {
       return;
     }
 
-    response.writeHead(200, {
-      "Content-Type": TYPES[extname(filePath)] ?? "application/octet-stream",
-      "Content-Length": info.size,
+    const extension = extname(filePath);
+    const headers = {
+      "Content-Type": TYPES[extension] ?? "application/octet-stream",
       "Cache-Control": pathname.includes("/assets/") ? "public, max-age=31536000" : "no-cache",
-    });
+    };
+
+    const acceptsGzip = /\bgzip\b/.test(request.headers["accept-encoding"] ?? "");
+    if (acceptsGzip && COMPRESSIBLE.has(extension)) {
+      const body = await gzipCached(filePath, info);
+      response.writeHead(200, { ...headers, "Content-Encoding": "gzip", "Content-Length": body.length });
+      response.end(request.method === "HEAD" ? undefined : body);
+      return;
+    }
+
+    response.writeHead(200, { ...headers, "Content-Length": info.size });
     createReadStream(filePath).pipe(response);
   } catch {
     response.writeHead(404, { "Content-Type": "text/plain" }).end(`Not found: ${pathname}`);

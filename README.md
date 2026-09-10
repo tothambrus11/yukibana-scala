@@ -33,7 +33,8 @@ Early prototype. See [docs/architecture.md](docs/architecture.md) for the design
 | Macro support | blocked upstream |
 
 Measured in headless Chromium 141 on a 4-core container: compile 3-9 s, link 2-10 s, run
-under 40 ms. A hello-world program links to a 153 KB `main.wasm`.
+under 40 ms. A hello-world program links to a 153 KB `main.wasm`. First load pulls the
+toolchain once: 62 MB raw, ~38 MB gzipped (the 31 MB compiler module compresses to 6.4 MB).
 
 ## Repository layout
 
