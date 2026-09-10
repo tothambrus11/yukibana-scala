@@ -59,6 +59,7 @@ export function describeToolchain(info: ScalaEngineInfo | undefined): string {
 
     const parts = [`Scala toolchain ready (host ${info.hostVersion ?? 'unknown'}).`];
     parts.push(`WebAssembly output ${info.supportsWasmTarget ? 'available' : 'unavailable'}.`);
+    parts.push(`Quoted macros ${info.supportsMacros ? 'expand in the browser' : 'are not supported'}.`);
 
     if (!info.supportsWasmTarget && info.missingExports?.length) {
         parts.push(`The loaded compiler is missing: ${info.missingExports.join(', ')}.`);

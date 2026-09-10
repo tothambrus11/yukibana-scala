@@ -45,6 +45,8 @@ export interface ScalaRunResult {
 export interface ScalaEngineInfo {
     ready: boolean;
     supportsWasmTarget: boolean;
+    /** Whether this build expands quoted macros in the browser. */
+    supportsMacros?: boolean;
     /** This runtime's version, and the one the loaded distribution was built with. */
     hostVersion?: string;
     manifestHostVersion?: string | null;
