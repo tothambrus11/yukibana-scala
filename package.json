@@ -3,13 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "description": "A fully client-side Scala IDE for the browser",
-  "workspaces": ["packages/scala-engine", "packages/theia-scala", "packages/theia-app", "e2e"],
+  "workspaces": [
+    "packages/scala-engine",
+    "packages/theia-scala",
+    "packages/theia-app",
+    "e2e"
+  ],
   "scripts": {
     "build:toolchain": "scripts/build-compiler-assets.sh",
     "build:extension": "npm run build --workspace @yukibana/theia-scala",
     "build:ide": "npm run build:extension && npm run build --workspace @yukibana/theia-app",
     "start:playground": "node scripts/dev-server.mjs",
-    "test:e2e": "node e2e/playground.mjs"
+    "test:e2e": "node e2e/playground.mjs",
+    "build:cloudflare": "scripts/build-cloudflare.sh",
+    "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
+    "test:ide": "node e2e/ide.mjs"
   },
   "engines": {
     "node": ">=20"

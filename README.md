@@ -29,6 +29,7 @@ Early prototype. See [docs/architecture.md](docs/architecture.md) for the design
 | **WebAssembly output** for user programs | works (our `linkScalaJSWasmAsync` bridge) |
 | End-to-end browser tests | works (7 cases, headless Chromium) |
 | Theia IDE shell (browser-only) | works: run/compile commands, Problems, Output, Scala syntax |
+| Static deployment (Cloudflare) | works: 36 files, 75 MB, within the 25 MiB per-file limit |
 | Interactive stdin, incremental compilation | planned |
 | Macro support | blocked upstream |
 
@@ -75,11 +76,18 @@ errors in Problems. `Scala: Run as WebAssembly` links your program to Wasm inste
 npm run start:playground     # http://localhost:8080
 ```
 
+**Deploy** (Cloudflare Pages or Workers - see [docs/deploy.md](docs/deploy.md)):
+
+```bash
+npm run build:cloudflare     # -> dist/cloudflare, checked against Cloudflare's limits
+npx wrangler deploy          # or: wrangler pages deploy dist/cloudflare
+```
+
 **Tests:**
 
 ```bash
 npm run test:e2e             # engine, in headless Chromium
-node e2e/ide.mjs             # the built IDE, in headless Chromium
+npm run test:ide             # the built IDE, in headless Chromium
 ```
 
 A browser with WebAssembly JSPI is required (Chrome/Edge 137+, or Chromium with
@@ -90,4 +98,5 @@ A browser with WebAssembly JSPI is required (Chrome/Edge 137+, or Chromium with
 - [docs/architecture.md](docs/architecture.md) — how the pieces fit together
 - [docs/build-pipeline.md](docs/build-pipeline.md) — building the WebAssembly toolchain
 - [docs/ide.md](docs/ide.md) — the Theia workbench and its extension
+- [docs/deploy.md](docs/deploy.md) — deploying to Cloudflare Pages / Workers
 - [docs/research.md](docs/research.md) — prior art, and why this approach

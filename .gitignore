@@ -12,3 +12,10 @@ packages/theia-app/src-gen/
 packages/theia-app/gen-*.mjs
 packages/theia-app/gen-*.js
 packages/theia-scala/lib/
+
+# Deploy output
+dist/
+
+# Compressed siblings a production bundler may drop next to sources
+*.js.gz
+*.wasm.gz

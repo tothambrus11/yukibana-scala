@@ -1,4 +1,5 @@
 import { VirtualFileSystem } from "./memory-fs.js";
+import { installCompressedAssetFetch } from "./compressed-assets.js";
 import { readZipEntries } from "./zip.js";
 import { parseDiagnostics } from "./diagnostics.js";
 
@@ -49,6 +50,12 @@ export class ScalaToolchain {
         fs.writeBytes(entry.path, await fetchBytes(resolve(entry.url)));
       }),
     );
+
+    // A deploy build may store large assets compressed; the compiler bundle asks for the
+    // uncompressed names, so redirect those fetches before importing it.
+    if (manifest.compressed) {
+      installCompressedAssetFetch(manifest.compressed, resolve);
+    }
 
     onProgress("compiler");
     const compilerModule = await import(resolve(manifest.compilerModule));

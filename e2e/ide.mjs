@@ -28,7 +28,8 @@ async function freePort() {
 
 const PORT = await freePort();
 const BASE_URL = `http://127.0.0.1:${PORT}/`;
-const FRONTEND = "packages/theia-app/lib/frontend";
+// FRONTEND=dist/cloudflare points the same suite at the deployable build.
+const FRONTEND = process.env.FRONTEND ?? "packages/theia-app/lib/frontend";
 
 function findChromium() {
     if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;

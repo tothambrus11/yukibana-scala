@@ -1,0 +1,10 @@
+{
+  // Static-assets-only Worker: there is no server side to this project.
+  // Deploy with: npm run build:cloudflare && npx wrangler deploy
+  "name": "yukibana",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./dist/cloudflare",
+    "not_found_handling": "single-page-application"
+  }
+}
