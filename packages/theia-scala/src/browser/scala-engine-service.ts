@@ -6,6 +6,7 @@ import { LinkTarget, ScalaEngineInfo, ScalaRunResult } from '../common';
 /** The part of `@yukibana/scala-engine`'s client that this extension uses. */
 interface EngineClient {
     init(): Promise<ScalaEngineInfo>;
+    warmUp(target?: LinkTarget): Promise<{ ok: boolean; durationMs: number }>;
     compile(files: Record<string, string>, options?: string[]): Promise<ScalaRunResult>;
     run(files: Record<string, string>, config?: { mainClass?: string; target?: LinkTarget }): Promise<ScalaRunResult>;
     on(event: 'progress' | 'stdout' | 'error', listener: (payload: any) => void): () => void;
@@ -111,6 +112,14 @@ export class ScalaEngineService {
             this.info = await engine.init();
             this.engine = engine;
             this.setStatus('ready');
+
+            // Pay the one-off costs - the classpath scan and the first link's IR parse - now,
+            // in the background, rather than in the user's first Run. Failure here is not
+            // interesting: the next real compile does the same work.
+            engine
+                .warmUp(this.preferences.get<LinkTarget>('yukibana.outputTarget', 'js'))
+                .catch(() => undefined);
+
             return engine;
         } catch (error) {
             this.loading = undefined;

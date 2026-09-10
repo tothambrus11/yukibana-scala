@@ -31,12 +31,13 @@ consumes a pinned release of it.
 | End-to-end browser tests | works (7 cases, headless Chromium) |
 | Theia IDE shell (browser-only) | works: run/compile commands, Problems, Output, Scala syntax |
 | Static deployment (Cloudflare) | works: 36 files, 75 MB, within the 25 MiB per-file limit |
-| Interactive stdin, incremental compilation | planned |
+| Interactive stdin | planned |
 | Macro support | blocked upstream |
 
-Measured in headless Chromium 141 on a 4-core container: compile 3-9 s, link 2-10 s, run
-under 40 ms. A hello-world program links to a 153 KB `main.wasm`. First load pulls the
-toolchain once: 62 MB raw, ~38 MB gzipped (the 31 MB compiler module compresses to 6.4 MB).
+Measured in headless Chromium 141 on a 4-core container, with the toolchain warmed in the
+background after load: **compile ~0.6 s, link ~0.15 s, run ~20 ms**. A hello-world program
+links to a 153 KB `main.wasm`. First load pulls the toolchain once: 62 MB raw, ~38 MB gzipped
+(the 31 MB compiler module compresses to 6.4 MB).
 
 ## Repository layout
 

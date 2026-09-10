@@ -133,6 +133,9 @@ engine
     setStatus("Toolchain ready", "ready");
     runButton.disabled = false;
     document.body.dataset.ready = "true";
+
+    // Warm the compiler and linker in the background so the first Run is not the slow one.
+    engine.warmUp(targetEl.value).catch(() => undefined);
   })
   .catch((error) => {
     setStatus("Toolchain failed to load", "error");

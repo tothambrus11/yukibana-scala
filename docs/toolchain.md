@@ -41,6 +41,14 @@ The **host runtime ships inside the distribution**, so it can never drift from t
 bundle whose contracts it implements. The playground and the IDE both import it from there,
 which is why they cannot disagree about how compilation works.
 
+## Warming it up
+
+The first compile of a session scans the classpath and the first link parses the runtime IR -
+several seconds, all one-off. Both the IDE and the playground call `engine.warmUp()` right
+after loading, which does that work in the background on a throwaway program, so a user's
+first Run costs the same as their tenth (~0.6 s compile, ~0.15 s link). Compiles are
+serialised, so the warm-up cannot race a real one.
+
 ## How it is wired in
 
 Nothing about the toolchain is bundled by webpack. The frontend fetches it at runtime:
