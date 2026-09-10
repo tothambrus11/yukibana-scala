@@ -84,8 +84,8 @@ npm run build:cloudflare                    # -> dist/cloudflare, checked agains
 npx wrangler deploy
 ```
 
-Pushing to `main` deploys automatically once `CLOUDFLARE_API_TOKEN` and
-`CLOUDFLARE_ACCOUNT_ID` are set as repository secrets.
+Pushing to `main` deploys automatically: the Cloudflare app builds the repository directly.
+See [docs/deploy.md](docs/deploy.md) for the exact build settings.
 
 **Tests:**
 

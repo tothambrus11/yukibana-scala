@@ -12,22 +12,34 @@ directly. Two platform limits shape the build, and both are identical for Pages 
 `scripts/build-cloudflare.sh` handles all three. It fails loudly if any file crosses the
 size limit, so a bad deploy is caught before upload rather than after.
 
-## Settings
+## Settings for the Cloudflare app
+
+Connect the repository in the Cloudflare dashboard; every push to `main` then builds and
+deploys. Nothing else in this repository triggers a deployment.
+
+**Workers (Git-connected builds)** — `wrangler.jsonc` is committed, so:
+
+| Setting | Value |
+| --- | --- |
+| Build command | `npm ci && ./scripts/fetch-toolchain.sh --compressed && npm run build:cloudflare` |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | `/` |
+
+**Pages**:
 
 | Setting | Value |
 | --- | --- |
 | Framework preset | **None** |
-| Root directory | `/` (the repository root) |
 | Build command | `npm ci && ./scripts/fetch-toolchain.sh --compressed && npm run build:cloudflare` |
 | Build output directory | **`dist/cloudflare`** |
-| Environment variables | `NODE_VERSION=22`, and `TOOLCHAIN_URL` (see below) |
+| Root directory | `/` |
 
-For Workers instead of Pages, `wrangler.jsonc` is already in the repo:
+Node comes from the committed `.node-version` (22), so no `NODE_VERSION` variable is needed.
+The build needs no secrets and no JDK: the compiler arrives as a release tarball.
 
-```bash
-npm run build:cloudflare
-npx wrangler deploy          # or: npm run deploy:cloudflare
-```
+Typical build is a few minutes — most of it `npm ci` for Theia — well inside the 20-minute
+limit. Locally the same commands produce the same directory, so you can reproduce a failed
+build exactly.
 
 ## The toolchain is downloaded, not built
 
@@ -91,20 +103,6 @@ upload, and the production bundle is 11.4 MB rather than the 23 MB development o
 - Visitors need **WebAssembly JSPI**: Chrome/Edge 137+. Other engines get a clear message
   naming the missing features rather than a broken page.
 
-## Continuous deployment
-
-`.github/workflows/deploy.yml` runs the same steps on every push to `main`: fetch the pinned
-toolchain, build, verify the bundle in headless Chromium, then deploy with Wrangler. It needs
-two repository secrets:
-
-| Secret | Where to get it |
-| --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare dashboard → Workers & Pages → Account ID |
-
-Without them the workflow still builds and tests, and skips only the deploy step — so a fork
-or a first push does not fail on missing secrets.
-
 ## Verifying a build before you ship it
 
 The IDE test suite can run against the deploy directory instead of the dev build:
@@ -113,6 +111,15 @@ The IDE test suite can run against the deploy directory instead of the dev build
 FRONTEND=dist/cloudflare node e2e/ide.mjs
 ```
 
-That boots the exact bundle you are about to upload in headless Chromium, compiles and runs
+That boots the exact bundle Cloudflare will serve in headless Chromium, compiles and runs
 Scala on both backends, and checks diagnostics - including the gzipped-compiler path, which
 is only exercised in the deploy build.
+
+Cloudflare does not run this, so run it locally before pushing anything that touches the
+frontend, the toolchain pin, or the deploy build:
+
+```bash
+./scripts/fetch-toolchain.sh --compressed
+npm run build:cloudflare
+FRONTEND=dist/cloudflare node e2e/ide.mjs
+```
