@@ -11,6 +11,13 @@
       <span class="brand">Yukibana</span>
       <span class="tag">Scala 3, compiled in your browser</span>
       <span id="status" class="status" data-state="loading">Loading toolchain...</span>
+      <label class="target">
+        output
+        <select id="target">
+          <option value="js">JavaScript</option>
+          <option value="wasm">WebAssembly</option>
+        </select>
+      </label>
       <button id="run" type="button" disabled>Run</button>
     </header>
 

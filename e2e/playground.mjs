@@ -105,6 +105,37 @@ object Main:
     },
   },
   {
+    name: "links and runs the program as WebAssembly",
+    target: "wasm",
+    source: `@main def hello(): Unit =
+  val squares = (1 to 6).map(n => n * n)
+  println("wasm squares: " + squares.mkString(","))
+`,
+    expect(result) {
+      assert(result.ok, "compilation should succeed");
+      assert(result.ran, "program should run");
+      assert(result.target === "wasm", `target should be wasm, was ${result.target}`);
+      assertIncludes(result.output, "wasm squares: 1,4,9,16,25,36");
+
+      const names = (result.linkedFiles ?? []).map((file) => file.name);
+      assert(names.includes("main.wasm"), `linker should emit main.wasm, emitted ${names.join(", ")}`);
+      const wasm = result.linkedFiles.find((file) => file.name === "main.wasm");
+      assert(wasm.size > 10_000, `main.wasm looks too small (${wasm.size} bytes)`);
+    },
+  },
+  {
+    name: "produces the same result from both backends",
+    target: "both",
+    source: `@main def hello(): Unit =
+  val text = List("a", "bb", "ccc").map(_.length).sum
+  println("total=" + text)
+`,
+    expect(result) {
+      assert(result.ok, "compilation should succeed");
+      assertIncludes(result.output, "total=6");
+    },
+  },
+  {
     name: "reports a type error with position",
     source: `object Main:
   def main(args: Array[String]): Unit =
@@ -159,27 +190,33 @@ try {
 
   for (const testCase of cases) {
     const files = testCase.files ?? { "Main.scala": testCase.source };
+    const targets = testCase.target === "both" ? ["js", "wasm"] : [testCase.target ?? "js"];
     const started = Date.now();
     try {
-      const result = await page.evaluate(
-        async (sources) => {
-          const { ScalaEngine } = await import("/packages/scala-engine/src/index.js");
-          globalThis.__engine ??= new ScalaEngine({
-            workerUrl: new URL("/packages/scala-engine/src/worker.js", location.origin),
-            manifestUrl: new URL("/packages/playground/public/assets/manifest.json", location.origin).href,
-          });
-          await globalThis.__engine.init();
-          return globalThis.__engine.run(sources);
-        },
-        files,
-      );
+      for (const target of targets) {
+        const result = await page.evaluate(
+          async ({ sources, linkTarget }) => {
+            const { ScalaEngine } = await import("/packages/scala-engine/src/index.js");
+            globalThis.__engine ??= new ScalaEngine({
+              workerUrl: new URL("/packages/scala-engine/src/worker.js", location.origin),
+              manifestUrl: new URL("/packages/playground/public/assets/manifest.json", location.origin).href,
+            });
+            await globalThis.__engine.init();
+            return globalThis.__engine.run(sources, { target: linkTarget });
+          },
+          { sources: files, linkTarget: target },
+        );
 
-      testCase.expect(result);
-      const timings = [result.compileMs, result.linkMs, result.runMs]
-        .filter((value) => value != null)
-        .map((value) => `${Math.round(value)}ms`)
-        .join(" / ");
-      console.log(`PASS  ${testCase.name}  (${((Date.now() - started) / 1000).toFixed(1)}s${timings ? `, ${timings}` : ""})`);
+        testCase.expect(result);
+        const timings = [result.compileMs, result.linkMs, result.runMs]
+          .filter((value) => value != null)
+          .map((value) => `${Math.round(value)}ms`)
+          .join(" / ");
+        const label = targets.length > 1 ? `${testCase.name} [${target}]` : testCase.name;
+        console.log(
+          `PASS  ${label}  (${((Date.now() - started) / 1000).toFixed(1)}s${timings ? `, ${timings}` : ""})`,
+        );
+      }
     } catch (error) {
       failures++;
       console.log(`FAIL  ${testCase.name}\n      ${error.message.split("\n").join("\n      ")}`);

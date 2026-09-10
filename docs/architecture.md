@@ -19,7 +19,7 @@ execution. No compile server, no round trip, works offline once cached.
  │       └── rt.jar, scala-lib, scalajs-lib, runtime .sjsir               │ │
  └────────────────────────────────────────────────────────────────────────┼─┘
                                                                           │
-                                      ES module (JS today, Wasm planned) ─┘
+                                  ES module: JavaScript *or* WebAssembly ─┘
                                                     │
                                                     ▼
                                        executed in a sandboxed context
@@ -32,7 +32,23 @@ two entry points to JavaScript:
 | Export | Signature | Purpose |
 | --- | --- | --- |
 | `runScala3CompilerSJSAsync(args)` | `Promise<int>` | runs the compiler CLI; reads/writes the JS-hosted FS |
-| `linkScalaJSModuleAsync(irFiles)` | `Promise<{jsFileName, code}>` | links `.sjsir` into an ES module |
+| `linkScalaJSAsync(irFiles, mainClass)` | `Promise<{jsFileName, code}>` | links to JavaScript, running `mainClass.main` on import |
+| `linkScalaJSModuleAsync(irFiles)` | `Promise<{jsFileName, code}>` | links to JavaScript with no entry point |
+| `linkScalaJSWasmAsync(irFiles, mainClass)` | `Promise<{jsFileName, files}>` | **ours** - links to WebAssembly, returning every emitted file |
+
+`linkScalaJSWasmAsync` comes from `toolchain/src-sjs/yukibana/WasmLinkerBridge.scala`, which
+the build copies into the fork before compiling, so the user's program can be WebAssembly
+too. It returns all three emitted files (`main.js`, `__loader.js`, `main.wasm`) because
+there is no directory in the browser to write them to.
+
+### Executing linked output
+
+A JavaScript link is one file: wrap it in a blob URL and `import()` it. A WebAssembly link is
+three files that reference each other by relative name, and the emitted loader resolves the
+`.wasm` against `import.meta.url` - which, inside a blob module, resolves to nothing useful.
+So `module-loader.js` gives each supporting file its own blob URL (the `.wasm` blob typed
+`application/wasm`, so `WebAssembly.instantiateStreaming` accepts it) and rewrites the entry
+module's `"./name"` references to those URLs before importing it.
 
 The compiler reaches the file system through a global, `globalThis.__scala3CompilerSJSHostFS`,
 which the host supplies. It is a synchronous, Node-`fs`-shaped object
@@ -69,6 +85,7 @@ behind Theia's task API.
 | 3 | Everything in a **Web Worker** | A 31 MB WasmGC module and a multi-second compile must not block the UI thread |
 | 4 | Engine is **framework-agnostic** | Theia integration should not be entangled with compile/link logic; keeps the playground usable as a fast test harness |
 | 5 | User program execution will move to a **sandboxed iframe** | Today the linked module is imported into the compiler worker, so user code shares a realm with the toolchain |
+| 6 | Our compiler-side code is **added, not patched** | `toolchain/src-sjs/` is copied into the fork checkout, so the fork can move without conflicts |
 
 ## Known risks
 

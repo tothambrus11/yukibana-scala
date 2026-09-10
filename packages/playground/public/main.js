@@ -12,6 +12,7 @@ const outputEl = document.getElementById("output");
 const statusEl = document.getElementById("status");
 const diagnosticsEl = document.getElementById("diagnostics");
 const timingsEl = document.getElementById("timings");
+const targetEl = document.getElementById("target");
 
 sourceEl.value = SAMPLE;
 
@@ -63,7 +64,13 @@ function renderTimings(result) {
   if (result.linkMs != null) parts.push(`link ${Math.round(result.linkMs)} ms`);
   if (result.runMs != null) parts.push(`run ${Math.round(result.runMs)} ms`);
   if (result.irFileCount != null) parts.push(`${result.irFileCount} IR files`);
-  if (result.linkedBytes != null) parts.push(`${(result.linkedBytes / 1024).toFixed(1)} KB linked JS`);
+  if (result.linkedBytes != null) {
+    const kind = result.target === "wasm" ? "WebAssembly" : "JavaScript";
+    parts.push(`${(result.linkedBytes / 1024).toFixed(1)} KB linked ${kind}`);
+  }
+  if (result.linkedFiles) {
+    parts.push(result.linkedFiles.map((file) => `${file.name} ${(file.size / 1024).toFixed(1)} KB`).join(", "));
+  }
   timingsEl.textContent = parts.join(" | ");
 }
 
@@ -76,7 +83,7 @@ async function run() {
   timingsEl.textContent = "";
 
   try {
-    const result = await engine.run({ "Main.scala": sourceEl.value });
+    const result = await engine.run({ "Main.scala": sourceEl.value }, { target: targetEl.value });
     renderDiagnostics(result.diagnostics);
     renderTimings(result);
 
@@ -116,7 +123,11 @@ sourceEl.addEventListener("keydown", (event) => {
 
 engine
   .init()
-  .then(() => {
+  .then((info) => {
+    if (!info.supportsWasmTarget) {
+      targetEl.querySelector('option[value="wasm"]').disabled = true;
+      targetEl.title = "This toolchain build cannot link to WebAssembly";
+    }
     setStatus("Toolchain ready", "ready");
     runButton.disabled = false;
     document.body.dataset.ready = "true";

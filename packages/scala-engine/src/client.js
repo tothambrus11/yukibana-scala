@@ -76,9 +76,15 @@ export class ScalaEngine {
     return this.#request("compile", { files, options });
   }
 
-  /** Compile, link and execute. */
-  run(files, { mainClass, options } = {}) {
-    return this.#request("run", { files, mainClass, options });
+  /**
+   * Compile, link and execute.
+   *
+   * @param {Record<string, string>} files
+   * @param {{mainClass?: string, options?: string[], target?: "js"|"wasm"}} [config]
+   *   `target` selects the linker backend for the *user's* program.
+   */
+  run(files, { mainClass, options, target } = {}) {
+    return this.#request("run", { files, mainClass, options, target });
   }
 
   terminate() {

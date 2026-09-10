@@ -10,6 +10,7 @@
  * Events:    {type: "progress", stage} | {id, type: "stdout", chunk}
  */
 import { ScalaToolchain, captureConsole } from "./toolchain.js";
+import { createLinkedModuleURL, linkedSize } from "./module-loader.js";
 
 let toolchainPromise = null;
 let manifestUrl = "./assets/manifest.json";
@@ -63,8 +64,8 @@ function toolchain() {
 }
 
 /** Import the linked module; a linker main initializer means importing it runs the program. */
-async function execute(code, id) {
-  const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+async function execute(link, id) {
+  const { url, revoke } = createLinkedModuleURL(link);
   const started = performance.now();
   try {
     const { lines } = await captureConsole(async () => {
@@ -76,15 +77,15 @@ async function execute(code, id) {
     for (const line of lines) post({ id, type: "stdout", chunk: line });
     return { output: lines.join("\n"), durationMs: performance.now() - started };
   } finally {
-    URL.revokeObjectURL(url);
+    revoke();
   }
 }
 
 const handlers = {
   async init(request) {
     if (request.manifestUrl) manifestUrl = request.manifestUrl;
-    await toolchain();
-    return { ready: true };
+    const tools = await toolchain();
+    return { ready: true, supportsWasmTarget: tools.supportsWasmTarget };
   },
 
   async compile(request) {
@@ -111,18 +112,21 @@ const handlers = {
       };
     }
 
-    post({ type: "progress", stage: "linking" });
-    const link = await tools.link(compilation.irFiles, { mainClass: entry });
+    const target = request.target === "wasm" ? "wasm" : "js";
+    post({ type: "progress", stage: "linking", detail: { target } });
+    const link = await tools.link(compilation.irFiles, { mainClass: entry, target });
 
     post({ type: "progress", stage: "running" });
-    const execution = await execute(link.code, request.id);
+    const execution = await execute(link, request.id);
 
     return {
       ...summary,
       ran: true,
       mainClass: entry,
+      target,
       linkMs: link.durationMs,
-      linkedBytes: link.code.length,
+      linkedBytes: linkedSize(link),
+      linkedFiles: link.files?.map((file) => ({ name: file.name, size: file.bytes.length })) ?? null,
       output: execution.output,
       runMs: execution.durationMs,
     };

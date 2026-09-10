@@ -8,4 +8,5 @@ export {
 } from "./toolchain.js";
 export { VirtualFileSystem } from "./memory-fs.js";
 export { parseDiagnostics } from "./diagnostics.js";
-export { readZipEntries } from "./zip.js";
+export { readZipEntries, openZip } from "./zip.js";
+export { createLinkedModuleURL, linkedSize } from "./module-loader.js";

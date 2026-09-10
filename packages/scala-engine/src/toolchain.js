@@ -121,31 +121,47 @@ export class ScalaToolchain {
     return this.#runtimeIR;
   }
 
+  /** Whether this toolchain build can link user programs to WebAssembly. */
+  get supportsWasmTarget() {
+    return typeof this.#compilerModule.linkScalaJSWasmAsync === "function";
+  }
+
   /**
    * Link IR to an executable ES module.
    *
    * @param {Array<{path: string, bytes: Uint8Array}>} irFiles program IR (runtime IR is added)
-   * @param {{mainClass?: string|null}} [config] when set, the module runs `mainClass.main` on import
+   * @param {{mainClass?: string|null, target?: "js"|"wasm"}} [config]
+   *   `mainClass` makes the module run `mainClass.main` on import; `target` selects the
+   *   linker backend, so the user's program can be WebAssembly like the compiler itself.
    */
-  async link(irFiles, { mainClass = null } = {}) {
+  async link(irFiles, { mainClass = null, target = "js" } = {}) {
+    if (target === "wasm" && !this.supportsWasmTarget) {
+      throw new Error(
+        "This toolchain build cannot link to WebAssembly: it has no linkScalaJSWasmAsync export. Rebuild the assets with scripts/build-compiler-assets.sh.",
+      );
+    }
+
     const started = now();
     const allIR = (await this.#runtimeIRFiles()).concat(irFiles);
-    const { result, lines } = await captureConsole(() =>
-      mainClass
+    const { result, lines } = await captureConsole(() => {
+      if (target === "wasm") return this.#compilerModule.linkScalaJSWasmAsync(allIR, mainClass ?? "");
+      return mainClass
         ? this.#compilerModule.linkScalaJSAsync(allIR, mainClass)
-        : this.#compilerModule.linkScalaJSModuleAsync(allIR),
-    );
+        : this.#compilerModule.linkScalaJSModuleAsync(allIR);
+    });
 
     return {
+      target,
       jsFileName: result.jsFileName,
-      code: result.code,
+      code: target === "wasm" ? null : result.code,
+      files: target === "wasm" ? [...result.files].map((file) => ({ name: file.name, bytes: file.bytes })) : null,
       output: lines.join("\n"),
       durationMs: now() - started,
     };
   }
 
   /** Compile and link in one step, picking an entry point when the caller did not. */
-  async build(files, { mainClass = null, options = [] } = {}) {
+  async build(files, { mainClass = null, options = [], target = "js" } = {}) {
     const compilation = await this.compile(files, { options });
     if (!compilation.ok) return { ok: false, compilation, link: null, mainClass: null };
 
@@ -158,7 +174,7 @@ export class ScalaToolchain {
       selected = selection.mainClass;
     }
 
-    const link = await this.link(compilation.irFiles, { mainClass: selected });
+    const link = await this.link(compilation.irFiles, { mainClass: selected, target });
     return { ok: true, compilation, link, mainClass: selected };
   }
 }

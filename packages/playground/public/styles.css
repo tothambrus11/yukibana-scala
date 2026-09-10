@@ -44,6 +44,17 @@ body {
 .brand { font-weight: 650; letter-spacing: 0.01em; }
 .tag { color: var(--muted); font-size: 13px; }
 .status { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+.target { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 6px; }
+
+.target select {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
 .status[data-state="error"] { color: var(--error); }
 .status[data-state="ready"] { color: var(--accent); }
 

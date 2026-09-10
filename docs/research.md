@@ -76,10 +76,11 @@ Serving that directory and driving it with headless Chromium 141:
   classpath/archive reads are asynchronous. Chrome/Edge 137+ have JSPI on by default.
 - **No macros.** Macro expansion is unsupported in the Scala.js-hosted compiler; this is the
   most significant language-level gap (it also rules out most of the ecosystem's inline/derived code).
-- **JS output only.** The bundled linker bridge is configured with `ModuleKind.ESModule` and
-  no Wasm flag, so user programs currently link to JavaScript even though the *compiler*
-  is WebAssembly. Enabling `withExperimentalUseWebAssembly(true)` in that bridge is a
-  tractable next step.
+- **JS output only** in the fork. Its linker bridge is configured with `ModuleKind.ESModule`
+  and no Wasm flag, so user programs link to JavaScript even though the *compiler* is
+  WebAssembly. We lift this: `toolchain/src-sjs/yukibana/WasmLinkerBridge.scala` adds a
+  bridge with `withExperimentalUseWebAssembly(true)`, so a program can be linked to
+  WebAssembly and run from blob URLs. **Verified**: hello-world links to a 153 KB `main.wasm`.
 - **Single source file, no incremental state**, and a crude stdin emulation that re-runs the
   whole program with accumulated input.
 

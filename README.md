@@ -13,6 +13,8 @@ in the same tab.
                       both run in your browser, in a Web Worker
 ```
 
+Your program can be linked to JavaScript or, like the compiler itself, to WebAssembly.
+
 ## Status
 
 Early prototype. See [docs/architecture.md](docs/architecture.md) for the design and
@@ -21,12 +23,17 @@ Early prototype. See [docs/architecture.md](docs/architecture.md) for the design
 | Stage | State |
 | --- | --- |
 | Scala 3 compiler → WebAssembly | works (via `scala3-compiler-sjs`, verified in Chromium 141) |
-| Compile + link + run in-browser | works (single file, JS output) |
-| Reproducible from-source build of the toolchain | in progress |
-| Multi-file workspaces | planned |
-| Wasm output for user programs | planned |
-| Theia IDE shell (browser-only) | planned |
+| Reproducible from-source build of the toolchain | works (`scripts/build-compiler-assets.sh`, ~16 min) |
+| Compile + link + run in-browser | works, multi-file |
+| **JavaScript output** for user programs | works |
+| **WebAssembly output** for user programs | works (our `linkScalaJSWasmAsync` bridge) |
+| End-to-end browser tests | works (7 cases, headless Chromium) |
+| Theia IDE shell (browser-only) | next |
+| Interactive stdin, incremental compilation | planned |
 | Macro support | blocked upstream |
+
+Measured in headless Chromium 141 on a 4-core container: compile 3-9 s, link 2-10 s, run
+under 40 ms. A hello-world program links to a 153 KB `main.wasm`.
 
 ## Repository layout
 

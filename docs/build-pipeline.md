@@ -31,9 +31,14 @@ Run it with:
 scripts/build-compiler-assets.sh
 ```
 
-The script pins a commit of the `scala3-compiler-sjs` fork, runs its
+The script pins a commit of the `scala3-compiler-sjs` fork, copies our own compiler-side
+sources from `toolchain/src-sjs/` into its `compiler/src-sjs/`, runs the
 `scala3-compiler-sjs/prepareBrowserIDE` sbt task, and stages the output under
 `packages/playground/public/assets/` with a manifest describing it.
+
+Adding sources rather than patching means the fork can move without merge conflicts. Today
+that is `WasmLinkerBridge.scala`, which exports `linkScalaJSWasmAsync` so user programs can be
+linked to WebAssembly; it added 8.5 KB to `main.wasm` and 51 s to an incremental rebuild.
 
 ### Requirements
 
@@ -65,11 +70,11 @@ The resulting `main.wasm` was byte-for-byte the same size as the one the fork co
 | `compiler/main.js` | 39 KB | Scala.js JS glue: imports, exports, JS-side intrinsics |
 | `compiler/__loader.js` | 6 KB | instantiates the Wasm module |
 | `classpath/rt.jar` | 15 MB | `java.base`, the JDK classpath the compiler type-checks against |
-| `classpath/scala-lib.jar` | 5.2 MB | Scala 3 library, compiled for Scala.js |
+| `classpath/scala-lib.jar` | 8.8 MB | Scala 3 library (`.class` + `.tasty`), see below |
 | `classpath/scalajs-lib.jar` | 1.1 MB | Scala.js library |
 | `runtime/runtime-sjsir.zip` | 7.0 MB | runtime `.sjsir`, linked together with the user's IR |
 | `vendor/*.js` | 8 KB | our JSZip-compatible shim (see below) |
-| **total** | **~58 MB** | uncompressed |
+| **total** | **~62 MB** | uncompressed |
 
 `manifest.json` ties them together and records which fork commit produced them.
 
@@ -83,6 +88,15 @@ Upstream satisfies that with a 370 KB copy of JSZip. We satisfy it with
 `DecompressionStream("deflate-raw")`, which also makes entry reads lazy — worthwhile when
 `rt.jar` is 15 MB and a program touches a few dozen classes.
 
+### The compile-time library jar
+
+The upstream task stages `scala-library-sjs/packageBin` as `scala-lib.jar`. On a clean build
+that jar holds only `.sjsir` - Scala.js IR, not classfiles - and a compiler given it cannot
+resolve `scala.Predef`, failing with `Not found: type Unit` on the simplest program. Our
+script packages `target/scala3-compiler-sjs/node-libs/scala-lib` instead, the merged library
+class directory (3,658 `.class` + 941 `.tasty`), which is what the upstream Node-hosted test
+uses. The script fails loudly if that directory does not contain `Predef.tasty`.
+
 ## Payload reduction (not yet done)
 
 Ideas in rough order of expected value:
@@ -92,7 +106,7 @@ Ideas in rough order of expected value:
 2. **`fullLinkJS`.** The compiler is currently `fastLinkJS`-linked (no whole-program
    optimisation). A full link should cut the module substantially at the cost of build time.
 3. **Trim `rt.jar`.** 15 MB of `java.base` where a browser program uses a fraction.
-4. **Cache in the browser.** Cache API or OPFS so the 58 MB is a one-time cost per version.
+4. **Cache in the browser.** Cache API or OPFS so the 62 MB is a one-time cost per version.
 5. **Split the linker out** of the compiler module so a re-run that only re-links does not
    need the compiler resident.
 

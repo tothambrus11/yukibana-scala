@@ -45,6 +45,11 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
     git -C "$CHECKOUT_DIR" fetch --filter=blob:none origin
   git -C "$CHECKOUT_DIR" checkout --detach "$FORK_REF"
 
+  # Our own compiler-side sources (e.g. the WebAssembly linker bridge) are copied in rather
+  # than patched, so they survive the fork moving forward.
+  log "Adding Yukibana compiler-side sources"
+  cp -R "$REPO_ROOT/toolchain/src-sjs/." "$CHECKOUT_DIR/compiler/src-sjs/"
+
   log "Installing the build's Node dependency (jszip, used by the upstream task)"
   (cd "$CHECKOUT_DIR/compiler" && npm install --silent)
 
