@@ -51,16 +51,21 @@ linked to WebAssembly; it added 8.5 KB to `main.wasm` and 51 s to an incremental
 
 ### Measured build
 
-On a 4-core / 15 GB container, from a cold sbt cache:
+On a 4-core / 15 GB container:
 
-| Stage | Time |
-| --- | --- |
-| clone (blobless) + sbt bootstrap | ~2 min |
-| non-bootstrapped compiler, tasty-core, libraries, `scala3-compiler-sjs`, fastLinkJS to Wasm, asset packing | ~14 min |
-| **total** | **~16 min**, exit 0 |
+| Stage | Cold caches | Warm ivy/coursier |
+| --- | --- | --- |
+| clone (blobless) + sbt bootstrap | ~2 min | ~1 min |
+| compiler, tasty-core, libraries, `scala3-compiler-sjs`, fastLink to Wasm, asset packing | ~14 min | ~6 min |
+| **total** | **~16 min** | **~8 min** |
 
-The resulting `main.wasm` was byte-for-byte the same size as the one the fork commits
-(31,659,267 bytes), which is a good sign the build is deterministic across machines.
+Both runs exited 0, and the whole script has been verified from a clean `.build-cache`
+(fresh clone of the pinned commit through to staged assets), after which the browser test
+suites pass unchanged.
+
+The `main.wasm` from a local build is the same size as the one the fork commits
+(31,659,267 bytes before our linker bridge is added), which is a good sign the build is
+reproducible across machines.
 
 ## The assets
 
