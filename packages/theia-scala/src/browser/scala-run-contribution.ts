@@ -12,7 +12,7 @@ import { FileChangeType } from '@theia/filesystem/lib/common/files';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import { LinkTarget, ScalaDiagnostic, ScalaRunResult, WORKSPACE_PREFIX } from '../common';
+import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX } from '../common';
 import { EngineStatus, ScalaEngineService } from './scala-engine-service';
 import { ScalaPreferences } from './scala-preferences';
 import { ScalaWorkspace } from './scala-workspace';
@@ -43,6 +43,35 @@ export namespace ScalaCommands {
         category: 'Scala',
         label: 'Load Toolchain',
     };
+}
+
+/**
+ * Say what the toolchain is, and when something is unavailable, why.
+ *
+ * "WebAssembly output unavailable" on its own is a dead end for whoever reads it. It nearly
+ * always means the loaded compiler bundle predates the runtime asking it for those exports -
+ * a stale cache serving a mix of two releases - which is fixable in one reload.
+ */
+export function describeToolchain(info: ScalaEngineInfo | undefined): string {
+    if (!info) {
+        return 'Scala toolchain is not loaded.';
+    }
+
+    const parts = [`Scala toolchain ready (host ${info.hostVersion ?? 'unknown'}).`];
+    parts.push(`WebAssembly output ${info.supportsWasmTarget ? 'available' : 'unavailable'}.`);
+
+    if (!info.supportsWasmTarget && info.missingExports?.length) {
+        parts.push(`The loaded compiler is missing: ${info.missingExports.join(', ')}.`);
+    }
+    if (info.versionMismatch) {
+        parts.push(
+            `It was built with host ${info.manifestHostVersion}, but this runtime is ` +
+                `${info.hostVersion} - a cached copy of an older release is being served. ` +
+                'Reload bypassing the cache.',
+        );
+    }
+
+    return parts.join(' ');
 }
 
 const PROBLEM_OWNER = 'scala';
@@ -120,10 +149,7 @@ export class ScalaRunContribution
         commands.registerCommand(ScalaCommands.LOAD_TOOLCHAIN, {
             execute: async () => {
                 await this.engine.ready();
-                const info = this.engine.engineInfo;
-                this.messages.info(
-                    `Scala toolchain ready. WebAssembly output ${info?.supportsWasmTarget ? 'available' : 'unavailable'}.`,
-                );
+                this.messages.info(describeToolchain(this.engine.engineInfo));
             },
         });
     }
@@ -308,7 +334,7 @@ export class ScalaRunContribution
             text,
             alignment: StatusBarAlignment.LEFT,
             priority: 100,
-            tooltip: status.detail ?? 'Scala toolchain (WebAssembly)',
+            tooltip: this.engine.engineInfo ? describeToolchain(this.engine.engineInfo) : (status.detail ?? 'Scala toolchain (WebAssembly)'),
             command: status.state === 'failed' ? ScalaCommands.LOAD_TOOLCHAIN.id : ScalaCommands.RUN.id,
         });
     }

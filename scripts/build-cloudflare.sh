@@ -71,9 +71,13 @@ log "Staging the toolchain"
 cp -R "$TOOLCHAIN" "$OUTPUT_DIR/toolchain"
 
 cat > "$OUTPUT_DIR/_headers" <<'HEADERS'
-# A toolchain release is immutable: safe to cache forever.
+# The toolchain is NOT content-addressed: a new release reuses these paths. Marking it
+# immutable meant a returning browser kept a year-old copy - and worse, could mix a fresh
+# host with a stale compiler, which shows up as "WebAssembly output unavailable" because the
+# exports the host looks for are missing. Revalidate instead: ETags make a repeat visit a
+# handful of 304s and no bytes, and correctness does not depend on a cache guess.
 /toolchain/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: no-cache
 
 /*.js
   Cache-Control: public, max-age=3600

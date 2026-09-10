@@ -45,6 +45,14 @@ export interface ScalaRunResult {
 export interface ScalaEngineInfo {
     ready: boolean;
     supportsWasmTarget: boolean;
+    /** This runtime's version, and the one the loaded distribution was built with. */
+    hostVersion?: string;
+    manifestHostVersion?: string | null;
+    versionMismatch?: boolean;
+    warmCompiles?: boolean;
+    incrementalLinking?: boolean;
+    /** Exports the loaded compiler bundle does not provide. */
+    missingExports?: string[];
 }
 
 /** The workspace-relative file name the engine compiles under. */

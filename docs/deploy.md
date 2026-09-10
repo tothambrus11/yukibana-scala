@@ -100,8 +100,11 @@ upload, and the production bundle is 11.4 MB rather than the 23 MB development o
 
 - **No COOP/COEP needed.** Nothing here uses `SharedArrayBuffer`.
 - `.wasm` is served as `application/wasm` by Cloudflare automatically.
-- `_headers` sets immutable caching for `/toolchain/*` — a release never changes, so a repeat
-  visit re-downloads nothing.
+- `_headers` sets `no-cache` (revalidate, not "do not cache") for `/toolchain/*`. The
+  toolchain's URLs are not content-addressed — a new release reuses them — so `immutable`
+  there let a browser keep a stale copy for a year, and could mix a fresh host with a stale
+  compiler. With revalidation a repeat visit is a few 304s and no bytes. Version the directory
+  (`/toolchain/<release>/…`) if you later want `immutable` back.
 - Visitors need **WebAssembly JSPI**: Chrome/Edge 137+. Other engines get a clear message
   naming the missing features rather than a broken page.
 
