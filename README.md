@@ -1,7 +1,6 @@
 # Yukibana
 
-A fully client-side Scala IDE for the browser — like [ABI Explorer](https://abiexplorer.org)
-("clang in your browser"), but for Scala.
+A fully client-side Scala IDE for the browser.
 
 Nothing is compiled on a server. The Scala 3 compiler itself runs in the browser as
 WebAssembly, and the programs you write are linked to JavaScript/WebAssembly and executed
