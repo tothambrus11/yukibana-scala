@@ -161,14 +161,22 @@ try {
             { timeout: 120_000, polling: 500 },
         );
         await waitForText(page, "Main.scala", 60_000);
-        await waitForText(page, "@main def hello", 30_000);
+        await waitForText(page, "@main def run", 30_000);
     });
 
     await check("runs the sample program and shows its output", async () => {
         await runCommand(page, "Scala: Run as JavaScript");
         // The toolchain downloads and instantiates 62 MB on first use.
-        await waitForText(page, "squares: 1, 4, 9, 16, 25", 300_000);
-        await waitForText(page, "sum = 55", 30_000);
+        await waitForText(page, "All 12 checks passed.", 300_000);
+        await waitForText(page, "3628800", 30_000);
+    });
+
+    await check("runs from the toolbar button, without the command palette", async () => {
+        await focusEditor(page);
+        const runButton = page.locator('[id="yukibana.scala.run"]').first();
+        await runButton.waitFor({ state: "visible", timeout: 30_000 });
+        await runButton.click();
+        await waitForText(page, "All 12 checks passed.", 300_000);
     });
 
     await check("recognises Scala as a language, not plain text", async () => {
@@ -182,7 +190,7 @@ try {
     await check("links and runs the program as WebAssembly", async () => {
         await runCommand(page, "Scala: Run as WebAssembly");
         await waitForText(page, "KB WebAssembly", 300_000);
-        await waitForText(page, "squares: 1, 4, 9, 16, 25", 30_000);
+        await waitForText(page, "All 12 checks passed.", 30_000);
     });
 
     await check("reports compiler errors in the Problems view", async () => {
@@ -207,6 +215,29 @@ try {
         // The build log carries the compiler's own rendering of the error.
         await waitForText(page, "Found:", 30_000);
         await waitForText(page, "Required: Int", 10_000);
+    });
+
+
+    // Last, because it replaces Main.scala: nothing after it should depend on the examples.
+    await check("autorun re-runs the program on save", async () => {
+        const autorun = page.locator(".yukibana-autorun input[type=checkbox]").first();
+        await autorun.waitFor({ state: "visible", timeout: 30_000 });
+        assert(!(await autorun.isChecked()), "autorun should start unticked");
+        await autorun.check();
+        assert(await autorun.isChecked(), "ticking autorun should tick the box");
+
+        // The marker is *computed*, so finding it proves the program ran. Asserting on a
+        // literal would match the source text in the editor, which is always on screen - an
+        // earlier version of this test passed that way while the program never ran at all.
+        await focusEditor(page);
+        await page.keyboard.press("Control+a");
+        await page.keyboard.type('@main def run(): Unit = println(s"autorun ${6 * 7}")\n');
+        await page.keyboard.press("Control+s");
+
+        await waitForText(page, "autorun 42", 300_000);
+
+        await autorun.uncheck();
+        assert(!(await autorun.isChecked()), "unticking autorun should untick the box");
     });
 
     await page.screenshot({ path: "/tmp/yukibana-ide.png" });

@@ -3,6 +3,7 @@ import { CommandContribution } from '@theia/core/lib/common/command';
 import { MenuContribution } from '@theia/core/lib/common/menu';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { KeybindingContribution } from '@theia/core/lib/browser/keybinding';
+import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { ScalaEngineService } from './scala-engine-service';
 import { ScalaWorkspace } from './scala-workspace';
 import { ScalaRunContribution } from './scala-run-contribution';
@@ -23,6 +24,7 @@ export default new ContainerModule(bind => {
         MenuContribution,
         KeybindingContribution,
         FrontendApplicationContribution,
+        TabBarToolbarContribution,
     ]) {
         bind(contribution).toService(ScalaRunContribution);
     }

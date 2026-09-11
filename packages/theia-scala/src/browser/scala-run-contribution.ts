@@ -1,6 +1,13 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { Command, CommandContribution, CommandRegistry } from '@theia/core/lib/common/command';
 import { MessageService } from '@theia/core/lib/common/message-service';
+import * as React from '@theia/core/shared/react';
+import { Emitter } from '@theia/core/lib/common/event';
+import { PreferenceService, PreferenceScope } from '@theia/core/lib/common/preferences';
+import {
+    TabBarToolbarContribution,
+    TabBarToolbarRegistry,
+} from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { MenuContribution, MenuModelRegistry } from '@theia/core/lib/common/menu';
 import { CommonMenus, FrontendApplicationContribution, StatusBar, StatusBarAlignment } from '@theia/core/lib/browser';
 import { KeybindingContribution, KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
@@ -13,6 +20,7 @@ import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX, missingWasmFeatures } from '../common';
+import { EXAMPLE_WORKSPACE, EXAMPLE_ENTRY_FILE } from '../common/examples';
 import { EngineStatus, ScalaEngineService } from './scala-engine-service';
 import { ScalaPreferences } from './scala-preferences';
 import { ScalaWorkspace } from './scala-workspace';
@@ -125,11 +133,6 @@ const COMPILE_ON_SAVE_DELAY_MS = 400;
 const SEEDED_FLAG = 'yukibana.workspace.seeded';
 const DEFAULT_WORKSPACE = 'file:///workspace';
 
-const SAMPLE_SOURCE = `@main def hello(): Unit =
-  val squares = (1 to 5).map(n => n * n)
-  println(s"squares: \${squares.mkString(", ")}")
-  println(s"sum = \${squares.sum}")
-`;
 
 /**
  * Wires the browser Scala toolchain into the workbench: commands to compile and run, program
@@ -138,7 +141,12 @@ const SAMPLE_SOURCE = `@main def hello(): Unit =
  */
 @injectable()
 export class ScalaRunContribution
-    implements CommandContribution, MenuContribution, KeybindingContribution, FrontendApplicationContribution
+    implements
+        CommandContribution,
+        MenuContribution,
+        KeybindingContribution,
+        FrontendApplicationContribution,
+        TabBarToolbarContribution
 {
     @inject(ScalaEngineService) protected readonly engine: ScalaEngineService;
     @inject(ScalaWorkspace) protected readonly sources: ScalaWorkspace;
@@ -150,12 +158,108 @@ export class ScalaRunContribution
     @inject(FileService) protected readonly fileService: FileService;
     @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService;
     @inject(EditorManager) protected readonly editorManager: EditorManager;
+    @inject(PreferenceService) protected readonly preferenceService: PreferenceService;
+
+    /**
+     * Run and Autorun, on the editor's toolbar.
+     *
+     * Running used to be a command, which meant knowing it existed. These are the two controls
+     * someone actually reaches for, in the place they look for them: a button that runs the
+     * program now, and a checkbox that keeps running it as they edit.
+     */
+    registerToolbarItems(registry: TabBarToolbarRegistry): void {
+        registry.registerItem({
+            id: 'yukibana.scala.run',
+            command: ScalaCommands.RUN.id,
+            text: '$(play) Run',
+            tooltip: 'Compile and run the Scala program (F5)',
+            priority: 0,
+            group: 'navigation',
+            isVisible: widget => this.isScalaEditor(widget),
+        });
+
+        registry.registerItem({
+            id: 'yukibana.scala.autorun',
+            priority: 1,
+            group: 'navigation',
+            isVisible: widget => this.isScalaEditor(widget),
+            // A real checkbox rather than a toggled icon: "is autorun on?" should be answerable
+            // by looking, not by remembering what the highlighted state meant.
+            onDidChange: this.onAutoRunChangedEmitter.event,
+            render: () =>
+                React.createElement(
+                    'label',
+                    {
+                        key: 'yukibana-autorun',
+                        className: 'yukibana-autorun',
+                        title: 'Run the program again every time you save',
+                        // Styled here rather than in a stylesheet: this extension ships no CSS,
+                        // and one label does not justify a build step for it.
+                        style: {
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '0 6px',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            whiteSpace: 'nowrap',
+                        },
+                    },
+                    React.createElement('input', {
+                        type: 'checkbox',
+                        checked: this.autoRunEnabled,
+                        style: { margin: 0, cursor: 'pointer' },
+                        onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+                            this.setAutoRun(event.target.checked),
+                    }),
+                    'Autorun',
+                ),
+        });
+    }
+
+    /** The toolbar is per-widget; these belong to an editor holding Scala. */
+    protected isScalaEditor(widget?: unknown): boolean {
+        const editor = widget as { editor?: { uri?: { path?: { ext?: string } } } } | undefined;
+        return editor?.editor?.uri?.path?.ext === '.scala';
+    }
+
+    protected readonly onAutoRunChangedEmitter = new Emitter<void>();
+
+    /**
+     * Whether autorun is on, held here rather than read from preferences on each render.
+     *
+     * The checkbox is a controlled input, so its state has to change the instant it is clicked.
+     * Writing the preference and re-reading it does not: the write is asynchronous, and in a
+     * browser-only workbench it may not land at all, so the box ticks and immediately snaps
+     * back. This field is what the checkbox reflects; the preference is where it is persisted
+     * and where someone can set it by hand.
+     */
+    protected autoRunEnabled = false;
+
+    protected async setAutoRun(enabled: boolean): Promise<void> {
+        this.autoRunEnabled = enabled;
+        this.onAutoRunChangedEmitter.fire();
+
+        if (enabled) {
+            // Acting immediately is the point of ticking it - otherwise nothing happens until
+            // the next save, which reads as the checkbox not working.
+            this.run(this.preferences['yukibana.outputTarget'], { quiet: true }).catch(() => undefined);
+        }
+
+        // Persistence is a nicety; the checkbox must not wait for it or depend on it.
+        try {
+            await this.preferenceService.set('yukibana.autoRun', enabled, PreferenceScope.User);
+        } catch {
+            // A workbench with nowhere to store preferences still gets a working checkbox.
+        }
+    }
 
     protected compileOnSaveTimer: number | undefined;
     protected running = false;
 
     onStart(): void {
         this.warnIfBrowserCannotRunScala();
+        this.autoRunEnabled = this.preferences['yukibana.autoRun'] ?? false;
 
         this.engine.onStatusChanged(status => {
             this.renderStatus(status);
@@ -166,14 +270,17 @@ export class ScalaRunContribution
         this.engine.onOutput(line => this.channel.appendLine(line));
 
         this.fileService.onDidFilesChange(event => {
-            if (!this.preferences['yukibana.compileOnSave']) {
+            const autoRun = this.autoRunEnabled;
+            if (!autoRun && !this.preferences['yukibana.compileOnSave']) {
                 return;
             }
             const touchedScala = event.changes.some(
                 change => change.type !== FileChangeType.DELETED && change.resource.path.ext === '.scala',
             );
             if (touchedScala) {
-                this.scheduleCompile();
+                // Autorun means run: compiling alone would leave the output showing the result
+                // of the previous edit, which is worse than not reacting at all.
+                this.scheduleAfterEdit(autoRun ? 'run' : 'compile');
             }
         });
 
@@ -272,13 +379,24 @@ export class ScalaRunContribution
         keybindings.registerKeybinding({ command: ScalaCommands.COMPILE.id, keybinding: 'ctrlcmd+shift+b' });
     }
 
-    protected scheduleCompile(): void {
+    /**
+     * React to an edit, once the edits stop.
+     *
+     * Saving fires per file, and a formatter or a multi-file change fires several times in a
+     * row; without the delay, typing would queue a compile per keystroke behind the one
+     * already running.
+     */
+    protected scheduleAfterEdit(action: 'compile' | 'run'): void {
         if (this.compileOnSaveTimer !== undefined) {
             window.clearTimeout(this.compileOnSaveTimer);
         }
         this.compileOnSaveTimer = window.setTimeout(() => {
             this.compileOnSaveTimer = undefined;
-            this.compile({ quiet: true }).catch(() => undefined);
+            const work =
+                action === 'run'
+                    ? this.run(this.preferences['yukibana.outputTarget'], { quiet: true })
+                    : this.compile({ quiet: true });
+            work.catch(() => undefined);
         }, COMPILE_ON_SAVE_DELAY_MS);
     }
 
@@ -316,15 +434,24 @@ export class ScalaRunContribution
         channel.appendLine(`Compilation failed with ${result.errorCount} error(s).`, OutputChannelSeverity.Error);
     }
 
-    async run(target: LinkTarget): Promise<void> {
+    /**
+     * @param quiet suppress the pop-ups. Autorun fires on every save, and a toast per failed
+     *   save while someone is mid-edit is noise; the Output view still says everything.
+     */
+    async run(target: LinkTarget, options: { quiet?: boolean } = {}): Promise<void> {
+        const { quiet = false } = options;
         if (this.running) {
-            this.messages.info('A Scala program is already running.');
+            if (!quiet) {
+                this.messages.info('A Scala program is already running.');
+            }
             return;
         }
 
         const { files, uris } = await this.sources.collect();
         if (Object.keys(files).length === 0) {
-            this.messages.warn('No Scala sources found in the workspace.');
+            if (!quiet) {
+                this.messages.warn('No Scala sources found in the workspace.');
+            }
             return;
         }
 
@@ -340,7 +467,9 @@ export class ScalaRunContribution
 
             if (!result.ok) {
                 channel.appendLine(result.compilerOutput || 'Compilation failed.', OutputChannelSeverity.Error);
-                this.messages.error(`Scala compilation failed with ${result.errorCount} error(s).`);
+                if (!quiet) {
+                    this.messages.error(`Scala compilation failed with ${result.errorCount} error(s).`);
+                }
                 return;
             }
 
@@ -364,7 +493,9 @@ export class ScalaRunContribution
             for (const line of describeFailure(error)) {
                 channel.appendLine(line, OutputChannelSeverity.Error);
             }
-            this.messages.error(`Scala run failed: ${message}`);
+            if (!quiet) {
+                this.messages.error(`Scala run failed: ${message}`);
+            }
         } finally {
             this.running = false;
         }
@@ -473,15 +604,15 @@ export class ScalaRunContribution
             if (!(await this.fileService.exists(root))) {
                 await this.fileService.createFolder(root);
             }
-            await this.fileService.create(root.resolve('Main.scala'), SAMPLE_SOURCE);
+            await this.writeExampleWorkspace(root);
             await this.workspaceService.open(root);
             return;
         }
 
         const root = new URI(roots[0].resource.toString());
-        const sample = root.resolve('Main.scala');
-        if (await this.fileService.exists(sample)) {
-            await this.editorManager.open(sample);
+        const entry = root.resolve(EXAMPLE_ENTRY_FILE);
+        if (await this.fileService.exists(entry)) {
+            await this.editorManager.open(entry);
             return;
         }
 
@@ -490,7 +621,17 @@ export class ScalaRunContribution
             return;
         }
 
-        await this.fileService.create(sample, SAMPLE_SOURCE);
-        await this.editorManager.open(sample);
+        await this.writeExampleWorkspace(root);
+        await this.editorManager.open(entry);
+    }
+
+    /** Write the example files, leaving anything already there alone. */
+    protected async writeExampleWorkspace(root: URI): Promise<void> {
+        for (const [name, source] of Object.entries(EXAMPLE_WORKSPACE)) {
+            const file = root.resolve(name);
+            if (!(await this.fileService.exists(file))) {
+                await this.fileService.create(file, source);
+            }
+        }
     }
 }

@@ -22,6 +22,12 @@ export const scalaPreferenceSchema: PreferenceSchema = {
             default: true,
             description: 'Compile the workspace and refresh diagnostics whenever a Scala file is saved.',
         },
+        'yukibana.autoRun': {
+            type: 'boolean',
+            default: false,
+            description:
+                'Run the program automatically whenever a Scala file is saved, instead of only compiling it. The Autorun checkbox in the editor toolbar toggles this.',
+        },
         'yukibana.toolchainPointer': {
             type: 'string',
             default: './toolchain-current.json',
@@ -50,6 +56,7 @@ export const scalaPreferenceSchema: PreferenceSchema = {
 export interface ScalaConfiguration {
     'yukibana.outputTarget': 'js' | 'wasm';
     'yukibana.compileOnSave': boolean;
+    'yukibana.autoRun': boolean;
     'yukibana.toolchainPointer': string;
     'yukibana.toolchainManifest': string;
     'yukibana.engineModule': string;
