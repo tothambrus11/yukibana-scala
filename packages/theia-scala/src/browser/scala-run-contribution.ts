@@ -81,6 +81,37 @@ export function describeToolchain(info: ScalaEngineInfo | undefined): string {
     return parts.join(' ');
 }
 
+/**
+ * Everything known about a failure, as lines for the output channel.
+ *
+ * Errors crossing a worker boundary arrive flattened - our own carry a `cause` and sometimes
+ * the fields the worker managed to salvage - so unpacking them here is the difference between
+ * a report that names a URL and one that says "Failed to fetch".
+ */
+export function describeFailure(error: unknown): string[] {
+    const lines: string[] = [];
+    let current: unknown = error;
+
+    for (let depth = 0; current && depth < 4; depth++) {
+        const asError = current as { name?: string; message?: string; stack?: string; cause?: unknown };
+        const name = typeof asError.name === 'string' ? asError.name : 'Error';
+        const message = typeof asError.message === 'string' ? asError.message : String(current);
+        lines.push(depth === 0 ? `${name}: ${message}` : `caused by ${name}: ${message}`);
+        if (typeof asError.stack === 'string' && depth === 0) {
+            lines.push(...asError.stack.split('\n').slice(1, 6).map(line => '    ' + line.trim()));
+        }
+        current = asError.cause;
+    }
+
+    if (/failed to fetch/i.test(lines[0] ?? '')) {
+        lines.push(
+            'A network request failed without saying which. Open DevTools, reload, and look ' +
+                'for the request marked failed in the Network tab - that names the asset.',
+        );
+    }
+    return lines;
+}
+
 const PROBLEM_OWNER = 'scala';
 const STATUS_BAR_ID = 'yukibana-scala-status';
 const OUTPUT_CHANNEL = 'Scala';
@@ -305,7 +336,12 @@ export class ScalaRunContribution
             channel.appendLine(this.describeTimings(result));
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            channel.appendLine(message, OutputChannelSeverity.Error);
+            // The toast gets the sentence; the channel gets everything that might identify the
+            // cause. A bare "Failed to fetch" is impossible to act on, and by the time someone
+            // reports it the console has usually been closed.
+            for (const line of describeFailure(error)) {
+                channel.appendLine(line, OutputChannelSeverity.Error);
+            }
             this.messages.error(`Scala run failed: ${message}`);
         } finally {
             this.running = false;
