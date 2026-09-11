@@ -22,20 +22,27 @@ export const scalaPreferenceSchema: PreferenceSchema = {
             default: true,
             description: 'Compile the workspace and refresh diagnostics whenever a Scala file is saved.',
         },
+        'yukibana.toolchainPointer': {
+            type: 'string',
+            default: './toolchain/current.json',
+            description:
+                'Small file naming the toolchain to load. It points at a content-addressed directory, so a new release is a new URL and a cached copy of an older one can never answer for it.',
+        },
         'yukibana.toolchainManifest': {
             type: 'string',
-            default: './toolchain/manifest.json',
-            description: 'Location of the WebAssembly toolchain manifest, relative to the application.',
+            default: '',
+            description:
+                'Load this manifest directly instead of following the pointer. For serving a toolchain from elsewhere, such as a CDN or a local build.',
         },
         'yukibana.engineModule': {
             type: 'string',
-            default: './toolchain/host/index.js',
-            description: 'Location of the browser Scala engine module.',
+            default: '',
+            description: 'Override the browser Scala engine module URL. Empty means take it from the pointer.',
         },
         'yukibana.engineWorker': {
             type: 'string',
-            default: './toolchain/host/worker.js',
-            description: 'Location of the browser Scala engine worker.',
+            default: '',
+            description: 'Override the browser Scala engine worker URL. Empty means take it from the pointer.',
         },
     },
 };
@@ -43,6 +50,7 @@ export const scalaPreferenceSchema: PreferenceSchema = {
 export interface ScalaConfiguration {
     'yukibana.outputTarget': 'js' | 'wasm';
     'yukibana.compileOnSave': boolean;
+    'yukibana.toolchainPointer': string;
     'yukibana.toolchainManifest': string;
     'yukibana.engineModule': string;
     'yukibana.engineWorker': string;

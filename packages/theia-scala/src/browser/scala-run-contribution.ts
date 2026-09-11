@@ -43,6 +43,12 @@ export namespace ScalaCommands {
         category: 'Scala',
         label: 'Load Toolchain',
     };
+
+    export const RELOAD_TOOLCHAIN: Command = {
+        id: 'yukibana.scala.reloadToolchain',
+        category: 'Scala',
+        label: 'Reload Toolchain (ignore cached copy)',
+    };
 }
 
 /**
@@ -68,13 +74,13 @@ export function describeToolchain(info: ScalaEngineInfo | undefined): string {
         parts.push(
             `It was built with host ${info.manifestHostVersion}, but this runtime is ` +
                 `${info.hostVersion} - a cached copy of an older release is being served. ` +
-                'Reload bypassing the cache.',
+                'Run "Scala: Reload Toolchain" to fetch the current one.',
         );
     } else if (info.olderThanFrontend) {
         parts.push(
             `This toolchain (host ${info.hostVersion ?? 'unknown'}) is older than this editor ` +
-                'expects, so a cached copy of an earlier release is being served. Reload ' +
-                'bypassing the cache (Ctrl/Cmd-Shift-R) to get the current one.',
+                'expects, so a cached copy of an earlier release is being served. Run ' +
+                '"Scala: Reload Toolchain" to fetch the current one.',
         );
     }
 
@@ -232,6 +238,22 @@ export class ScalaRunContribution
             execute: async () => {
                 await this.engine.ready();
                 this.messages.info(describeToolchain(this.engine.engineInfo));
+            },
+        });
+
+        commands.registerCommand(ScalaCommands.RELOAD_TOOLCHAIN, {
+            execute: async () => {
+                // Discards the loaded toolchain and re-resolves it, ignoring any cached copy.
+                // The one thing a person can do about a browser holding something stale, and
+                // it should not require knowing about hard reloads.
+                this.staleToolchainReported = false;
+                try {
+                    await this.engine.reload();
+                    this.messages.info(describeToolchain(this.engine.engineInfo));
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    this.messages.error(`Could not reload the Scala toolchain: ${message}`);
+                }
             },
         });
     }

@@ -52,7 +52,7 @@ async function startServer() {
 
     for (let attempt = 0; attempt < 50; attempt++) {
         try {
-            if ((await fetch(`${BASE_URL}toolchain/manifest.json`)).ok) return server;
+            if ((await fetch(`${BASE_URL}toolchain/current.json`)).ok) return server;
         } catch {
             // not up yet
         }

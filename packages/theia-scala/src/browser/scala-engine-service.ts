@@ -11,6 +11,8 @@ interface EngineClient {
     compile(files: Record<string, string>, options?: string[]): Promise<ScalaRunResult>;
     run(files: Record<string, string>, config?: { mainClass?: string; target?: LinkTarget }): Promise<ScalaRunResult>;
     on(event: 'progress' | 'stdout' | 'error', listener: (payload: any) => void): () => void;
+    /** Optional: stops the worker, so a reload does not leave the old one running. */
+    terminate?(): void;
 }
 
 interface EngineModule {
@@ -90,16 +92,66 @@ export class ScalaEngineService {
         this.onStatusChangedEmitter.fire(this.status);
     }
 
-    protected get moduleUrl(): string {
-        return this.preferences.get<string>('yukibana.engineModule', './toolchain/host/index.js');
+    /**
+     * Where the toolchain lives, following the pointer unless something overrides it.
+     *
+     * The pointer is the only file that must be fresh; it names a content-addressed directory,
+     * so everything it points at can be cached forever without any risk of a stale copy
+     * answering for a new release. `cacheBust` skips even that one cached response, for when
+     * someone explicitly asks to reload.
+     */
+    protected async resolveToolchain(cacheBust = false): Promise<{ manifest: string; host: string; worker: string }> {
+        const base = new URL(document.baseURI);
+        const manifestOverride = this.preferences.get<string>('yukibana.toolchainManifest', '');
+        const moduleOverride = this.preferences.get<string>('yukibana.engineModule', '');
+        const workerOverride = this.preferences.get<string>('yukibana.engineWorker', '');
+
+        let fromPointer: { manifest?: string; host?: string; worker?: string } = {};
+        let pointerBase = base;
+        if (!manifestOverride || !moduleOverride || !workerOverride) {
+            const pointerUrl = new URL(
+                this.preferences.get<string>('yukibana.toolchainPointer', './toolchain/current.json'),
+                base,
+            );
+            if (cacheBust) {
+                pointerUrl.searchParams.set('reload', String(Date.now()));
+            }
+            const response = await fetch(pointerUrl.href, { cache: cacheBust ? 'reload' : 'no-cache' });
+            if (!response.ok) {
+                throw new Error(`Could not read ${pointerUrl.href}: ${response.status} ${response.statusText}`);
+            }
+            fromPointer = await response.json();
+            pointerBase = pointerUrl;
+        }
+
+        const resolve = (override: string, pointed: string | undefined, fallback: string): string =>
+            override
+                ? new URL(override, base).href
+                : new URL(pointed ?? fallback, pointerBase).href;
+
+        return {
+            manifest: resolve(manifestOverride, fromPointer.manifest, './toolchain/manifest.json'),
+            host: resolve(moduleOverride, fromPointer.host, './toolchain/host/index.js'),
+            worker: resolve(workerOverride, fromPointer.worker, './toolchain/host/worker.js'),
+        };
     }
 
-    protected get workerUrl(): string {
-        return this.preferences.get<string>('yukibana.engineWorker', './toolchain/host/worker.js');
-    }
+    protected bypassCacheOnNextLoad = false;
 
-    protected get manifestUrl(): string {
-        return this.preferences.get<string>('yukibana.toolchainManifest', './toolchain/manifest.json');
+    /**
+     * Throw away the loaded toolchain and load it again, ignoring any cached copy.
+     *
+     * The one manual escape hatch, for a browser holding something stale from before the
+     * content-addressed layout existed. Everything it re-fetches is re-resolved through the
+     * pointer, so this picks up a new release as well as a repaired one.
+     */
+    async reload(): Promise<EngineClient> {
+        this.engine?.terminate?.();
+        this.engine = undefined;
+        this.loading = undefined;
+        this.info = undefined;
+        this.bypassCacheOnNextLoad = true;
+        return this.ready();
     }
 
     /** Load the toolchain, reusing an in-flight load. */
@@ -114,12 +166,10 @@ export class ScalaEngineService {
     protected async load(): Promise<EngineClient> {
         this.setStatus('loading', 'Loading Scala toolchain');
         try {
-            const base = new URL(document.baseURI);
-            const { ScalaEngine } = await dynamicImport(new URL(this.moduleUrl, base).href);
-            const engine = new ScalaEngine({
-                workerUrl: new URL(this.workerUrl, base).href,
-                manifestUrl: new URL(this.manifestUrl, base).href,
-            });
+            const urls = await this.resolveToolchain(this.bypassCacheOnNextLoad);
+            this.bypassCacheOnNextLoad = false;
+            const { ScalaEngine } = await dynamicImport(urls.host);
+            const engine = new ScalaEngine({ workerUrl: urls.worker, manifestUrl: urls.manifest });
 
             engine.on('progress', ({ stage }: { stage: string }) => this.setStatus('loading', STAGE_LABELS[stage] ?? stage));
             engine.on('stdout', ({ chunk }: { chunk: string }) => this.onOutputEmitter.fire(chunk));

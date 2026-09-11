@@ -15,7 +15,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND="${FRONTEND:-$REPO_ROOT/packages/theia-app/lib/frontend}"
 TOOLCHAIN="${TOOLCHAIN:-$REPO_ROOT/vendor/scala-toolchain-wasm}"
-MODE="${1:-symlink}"
+MODE="${1:-symlink}"   # --copy for deployment, otherwise a symlink
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -23,17 +23,12 @@ die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 [[ -d "$FRONTEND" ]] || die "no built frontend at $FRONTEND (run: npm run build:ide)"
 [[ -f "$TOOLCHAIN/manifest.json" ]] || die "no toolchain at $TOOLCHAIN (run: scripts/fetch-toolchain.sh)"
 
-rm -rf "$FRONTEND/toolchain"
-
 if [[ "$MODE" == "--copy" ]]; then
   log "Copying the toolchain into $FRONTEND"
-  cp -R "$TOOLCHAIN" "$FRONTEND/toolchain"
 else
   log "Linking the toolchain into $FRONTEND"
-  ln -s "$TOOLCHAIN" "$FRONTEND/toolchain"
 fi
 
-node -e '
-const t = require(process.argv[1] + "/manifest.json").toolchain ?? {};
-console.log(`    Scala ${t.scalaVersion}, Scala.js ${t.scalaJSVersion}, host ${t.hostVersion}`);
-' "$TOOLCHAIN"
+# Staged under a name derived from its content, with a small `current.json` pointing at it,
+# so a cached copy of an older release can never answer for this one. See stage-toolchain.mjs.
+node "$REPO_ROOT/scripts/stage-toolchain.mjs" "$TOOLCHAIN" "$FRONTEND/toolchain" "$MODE"

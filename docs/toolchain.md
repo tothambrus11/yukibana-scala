@@ -63,20 +63,48 @@ after loading, which does that work in the background on a throwaway program, so
 first Run costs the same as their tenth (~0.6 s compile, ~0.15 s link). Compiles are
 serialised, so the warm-up cannot race a real one.
 
-## How it is wired in
+## How it is wired in, and why a cache cannot break it
 
-Nothing about the toolchain is bundled by webpack. The frontend fetches it at runtime:
+Nothing about the toolchain is bundled by webpack. The frontend fetches it at runtime, through
+one small file:
+
+```
+toolchain/current.json                 200 bytes, never cached
+toolchain/0.3.4-a1b2c3d4/manifest.json cached for a year, safely
+toolchain/0.3.4-a1b2c3d4/compiler/...
+```
+
+The directory is named for the distribution's content — its host version plus a digest of its
+manifest — so **a new release is a new URL**. A cached copy of an older release can still be
+served, and is simply never asked for. That makes it safe to cache the 35 MB of compiler and
+classpath for a year, which is what a repeat visit wants.
+
+`current.json` names the directory in use, and is the only file that must be fresh. It is
+small enough that revalidating it costs nothing.
+
+This replaced fixed paths under `toolchain/`, which caused three separate incidents that each
+looked like a different bug — `warmUp is not a function`, `linkScalaJSAsync is not a function`,
+and features reported missing that were present — and were all one cause: a browser answering
+a request for the current release with a copy of an older one.
 
 | Preference | Default | Purpose |
 | --- | --- | --- |
-| `yukibana.toolchainManifest` | `./toolchain/manifest.json` | which distribution to load |
-| `yukibana.engineModule` | `./toolchain/host/index.js` | the host runtime |
-| `yukibana.engineWorker` | `./toolchain/host/worker.js` | the worker it spawns |
+| `yukibana.toolchainPointer` | `./toolchain/current.json` | which distribution to load |
+| `yukibana.toolchainManifest` | *(empty)* | load this manifest instead, e.g. from a CDN |
+| `yukibana.engineModule` | *(empty)* | override the host runtime URL |
+| `yukibana.engineWorker` | *(empty)* | override the worker URL |
 
-`scripts/stage-ide-assets.sh` puts the distribution at `./toolchain` in the built frontend —
-a symlink for development, a copy (`--copy`) for deployment. Because the paths are
-preferences, an instance can point at a CDN or an R2 bucket instead; URLs inside a manifest
-resolve relative to it.
+The overrides are for pointing an instance somewhere else; left empty, everything comes from
+the pointer. `scripts/stage-ide-assets.sh` builds this layout for development (a symlink) and
+for deployment (`--copy`); `scripts/build-cloudflare.sh` does the same and writes the matching
+`_headers`.
+
+### When a browser is holding something stale anyway
+
+Running **"Scala: Reload Toolchain"** from the command palette discards the loaded toolchain
+and fetches it again, ignoring any cached copy — including the pointer. That is the supported
+answer, and it is what the editor tells a user to do when it notices a mismatch. A hard reload
+also works but should never be necessary.
 
 ## Upgrading
 

@@ -68,15 +68,20 @@ mkdir -p "$OUTPUT_DIR"
   tar -xf - -C "$OUTPUT_DIR"
 
 log "Staging the toolchain"
-cp -R "$TOOLCHAIN" "$OUTPUT_DIR/toolchain"
+node "$REPO_ROOT/scripts/stage-toolchain.mjs" "$TOOLCHAIN" "$OUTPUT_DIR/toolchain" --copy
 
 cat > "$OUTPUT_DIR/_headers" <<'HEADERS'
-# The toolchain is NOT content-addressed: a new release reuses these paths. Marking it
-# immutable meant a returning browser kept a year-old copy - and worse, could mix a fresh
-# host with a stale compiler, which shows up as "WebAssembly output unavailable" because the
-# exports the host looks for are missing. Revalidate instead: ETags make a repeat visit a
-# handful of 304s and no bytes, and correctness does not depend on a cache guess.
+# The toolchain now lives under a directory named for its contents, so a new release is a new
+# URL and a cached copy of an older one can never answer for it. That makes caching it safe
+# again - which matters, because it is ~35 MB on a first visit.
+#
+# `current.json` is the single exception and the only file that must be fresh: it names the
+# directory in use. Cloudflare applies every matching rule in order, so the specific rule
+# comes second and overrides the general one.
 /toolchain/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/toolchain/current.json
   Cache-Control: no-cache
 
 /*.js
