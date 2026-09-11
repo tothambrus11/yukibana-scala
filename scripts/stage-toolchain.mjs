@@ -11,9 +11,16 @@
  * cached; everything under the versioned directory can be immutable for a year, because a
  * different distribution is a different URL and cannot collide with it.
  *
- *   toolchain/current.json                 <- revalidated, ~200 bytes
+ *   toolchain-current.json                 <- revalidated, ~200 bytes
  *   toolchain/0.3.4-a1b2c3d4/manifest.json <- immutable
  *   toolchain/0.3.4-a1b2c3d4/compiler/...
+ *
+ * The pointer deliberately sits *beside* the toolchain directory rather than inside it.
+ * Cloudflare's `_headers` merges the directives of every matching rule instead of letting a
+ * more specific one win, so a pointer under `/toolchain/` came back as
+ * `max-age=31536000, immutable, no-cache` - a contradiction, and one a browser may resolve by
+ * never revalidating, which would pin it to a single release forever. Two paths that cannot
+ * both match is the only way to be sure.
  */
 import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -30,10 +37,11 @@ export function distributionId(manifestText) {
   return `${version}-${digest}`;
 }
 
-export async function stageToolchain({ source, destination, copy }) {
+export async function stageToolchain({ source, root, copy }) {
   const manifestText = await readFile(join(source, "manifest.json"), "utf8");
   const id = distributionId(manifestText);
 
+  const destination = join(root, "toolchain");
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
 
@@ -45,14 +53,14 @@ export async function stageToolchain({ source, destination, copy }) {
   }
 
   await writeFile(
-    join(destination, "current.json"),
+    join(root, "toolchain-current.json"),
     JSON.stringify(
       {
         // Everything the frontend needs to reach this distribution, relative to this file.
         id,
-        manifest: `./${id}/manifest.json`,
-        host: `./${id}/host/index.js`,
-        worker: `./${id}/host/worker.js`,
+        manifest: `./toolchain/${id}/manifest.json`,
+        host: `./toolchain/${id}/host/index.js`,
+        worker: `./toolchain/${id}/host/worker.js`,
       },
       null,
       2,
@@ -63,16 +71,16 @@ export async function stageToolchain({ source, destination, copy }) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const [source, destination, mode] = process.argv.slice(2);
-  if (!source || !destination) {
-    console.error("usage: stage-toolchain.mjs <source> <destination> [--copy]");
+  const [source, root, mode] = process.argv.slice(2);
+  if (!source || !root) {
+    console.error("usage: stage-toolchain.mjs <source> <site-root> [--copy]");
     process.exit(2);
   }
   if (!existsSync(join(source, "manifest.json"))) {
     console.error(`error: no toolchain at ${source}`);
     process.exit(1);
   }
-  const { id, manifest } = await stageToolchain({ source, destination, copy: mode === "--copy" });
+  const { id, manifest } = await stageToolchain({ source, root, copy: mode === "--copy" });
   const t = manifest.toolchain ?? {};
   console.log(`    Scala ${t.scalaVersion}, Scala.js ${t.scalaJSVersion}, host ${t.hostVersion}`);
   console.log(`    staged as toolchain/${id}`);

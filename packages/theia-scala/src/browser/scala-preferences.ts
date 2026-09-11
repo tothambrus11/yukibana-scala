@@ -24,7 +24,7 @@ export const scalaPreferenceSchema: PreferenceSchema = {
         },
         'yukibana.toolchainPointer': {
             type: 'string',
-            default: './toolchain/current.json',
+            default: './toolchain-current.json',
             description:
                 'Small file naming the toolchain to load. It points at a content-addressed directory, so a new release is a new URL and a cached copy of an older one can never answer for it.',
         },

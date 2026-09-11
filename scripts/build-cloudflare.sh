@@ -68,20 +68,22 @@ mkdir -p "$OUTPUT_DIR"
   tar -xf - -C "$OUTPUT_DIR"
 
 log "Staging the toolchain"
-node "$REPO_ROOT/scripts/stage-toolchain.mjs" "$TOOLCHAIN" "$OUTPUT_DIR/toolchain" --copy
+node "$REPO_ROOT/scripts/stage-toolchain.mjs" "$TOOLCHAIN" "$OUTPUT_DIR" --copy
 
 cat > "$OUTPUT_DIR/_headers" <<'HEADERS'
 # The toolchain now lives under a directory named for its contents, so a new release is a new
 # URL and a cached copy of an older one can never answer for it. That makes caching it safe
 # again - which matters, because it is ~35 MB on a first visit.
 #
-# `current.json` is the single exception and the only file that must be fresh: it names the
-# directory in use. Cloudflare applies every matching rule in order, so the specific rule
-# comes second and overrides the general one.
+# `toolchain-current.json` names the directory in use and is the one file that must be fresh.
+# It sits outside /toolchain/ on purpose: Cloudflare MERGES the directives of every matching
+# rule rather than letting the more specific one win, so a pointer inside that prefix was
+# served as "max-age=31536000, immutable, no-cache" - a contradiction a browser may resolve by
+# never revalidating, pinning it to one release forever. Non-overlapping paths, no ambiguity.
 /toolchain/*
   Cache-Control: public, max-age=31536000, immutable
 
-/toolchain/current.json
+/toolchain-current.json
   Cache-Control: no-cache
 
 /*.js

@@ -31,4 +31,5 @@ fi
 
 # Staged under a name derived from its content, with a small `current.json` pointing at it,
 # so a cached copy of an older release can never answer for this one. See stage-toolchain.mjs.
-node "$REPO_ROOT/scripts/stage-toolchain.mjs" "$TOOLCHAIN" "$FRONTEND/toolchain" "$MODE"
+rm -f "$FRONTEND/toolchain-current.json"
+node "$REPO_ROOT/scripts/stage-toolchain.mjs" "$TOOLCHAIN" "$FRONTEND" "$MODE"

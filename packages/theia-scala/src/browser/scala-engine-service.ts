@@ -110,7 +110,7 @@ export class ScalaEngineService {
         let pointerBase = base;
         if (!manifestOverride || !moduleOverride || !workerOverride) {
             const pointerUrl = new URL(
-                this.preferences.get<string>('yukibana.toolchainPointer', './toolchain/current.json'),
+                this.preferences.get<string>('yukibana.toolchainPointer', './toolchain-current.json'),
                 base,
             );
             if (cacheBust) {

@@ -69,7 +69,7 @@ Nothing about the toolchain is bundled by webpack. The frontend fetches it at ru
 one small file:
 
 ```
-toolchain/current.json                 200 bytes, never cached
+toolchain-current.json                 200 bytes, never cached
 toolchain/0.3.4-a1b2c3d4/manifest.json cached for a year, safely
 toolchain/0.3.4-a1b2c3d4/compiler/...
 ```
@@ -79,8 +79,14 @@ manifest — so **a new release is a new URL**. A cached copy of an older releas
 served, and is simply never asked for. That makes it safe to cache the 35 MB of compiler and
 classpath for a year, which is what a repeat visit wants.
 
-`current.json` names the directory in use, and is the only file that must be fresh. It is
-small enough that revalidating it costs nothing.
+`toolchain-current.json` names the directory in use, and is the only file that must be fresh.
+It is small enough that revalidating it costs nothing.
+
+It sits *beside* `toolchain/` rather than inside it because Cloudflare's `_headers` **merges**
+the directives of every matching rule instead of letting the more specific one win. A pointer
+under that prefix was served as `max-age=31536000, immutable, no-cache` — a contradiction, and
+one a browser may settle by never revalidating, which would pin it to a single release
+forever. Paths that cannot both match is the only way to be certain.
 
 This replaced fixed paths under `toolchain/`, which caused three separate incidents that each
 looked like a different bug — `warmUp is not a function`, `linkScalaJSAsync is not a function`,
@@ -89,7 +95,7 @@ a request for the current release with a copy of an older one.
 
 | Preference | Default | Purpose |
 | --- | --- | --- |
-| `yukibana.toolchainPointer` | `./toolchain/current.json` | which distribution to load |
+| `yukibana.toolchainPointer` | `./toolchain-current.json` | which distribution to load |
 | `yukibana.toolchainManifest` | *(empty)* | load this manifest instead, e.g. from a CDN |
 | `yukibana.engineModule` | *(empty)* | override the host runtime URL |
 | `yukibana.engineWorker` | *(empty)* | override the worker URL |
