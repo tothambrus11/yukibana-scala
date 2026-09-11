@@ -20,7 +20,7 @@ import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX, missingWasmFeatures } from '../common';
-import { EXAMPLE_WORKSPACE, EXAMPLE_ENTRY_FILE } from '../common/examples';
+import { EXAMPLE_WORKSPACE, EXAMPLE_ENTRY_FILE, isSupersededSample } from '../common/examples';
 import { EngineStatus, ScalaEngineService } from './scala-engine-service';
 import { ScalaPreferences } from './scala-preferences';
 import { ScalaWorkspace } from './scala-workspace';
@@ -159,6 +159,7 @@ export class ScalaRunContribution
     @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService;
     @inject(EditorManager) protected readonly editorManager: EditorManager;
     @inject(PreferenceService) protected readonly preferenceService: PreferenceService;
+    @inject(CommandRegistry) protected readonly commandRegistry: CommandRegistry;
 
     /**
      * Run and Autorun, on the editor's toolbar.
@@ -170,12 +171,33 @@ export class ScalaRunContribution
     registerToolbarItems(registry: TabBarToolbarRegistry): void {
         registry.registerItem({
             id: 'yukibana.scala.run',
-            command: ScalaCommands.RUN.id,
-            text: '$(play) Run',
-            tooltip: 'Compile and run the Scala program (F5)',
             priority: 0,
             group: 'navigation',
             isVisible: widget => this.isScalaEditor(widget),
+            // Rendered rather than declared, because Theia blanks a toolbar item's text as
+            // soon as it has an icon ("only present text if there is no icon"), so the
+            // obvious `$(play) Run` renders as a bare triangle. The word is the point.
+            render: () =>
+                React.createElement(
+                    'button',
+                    {
+                        key: 'yukibana-run',
+                        id: 'yukibana.scala.run',
+                        className: 'yukibana-run theia-button',
+                        title: 'Compile and run the Scala program (F5)',
+                        style: {
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            margin: '0 4px',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                        },
+                        onClick: () => this.commandRegistry.executeCommand(ScalaCommands.RUN.id),
+                    },
+                    React.createElement('span', { className: 'codicon codicon-play', 'aria-hidden': true }),
+                    'Run',
+                ),
         });
 
         registry.registerItem({
@@ -236,6 +258,9 @@ export class ScalaRunContribution
      */
     protected autoRunEnabled = false;
 
+    /** A save arrived while a run was in flight; run again once it finishes. */
+    protected runQueuedWhileBusy = false;
+
     protected async setAutoRun(enabled: boolean): Promise<void> {
         this.autoRunEnabled = enabled;
         this.onAutoRunChangedEmitter.fire();
@@ -260,6 +285,18 @@ export class ScalaRunContribution
     onStart(): void {
         this.warnIfBrowserCannotRunScala();
         this.autoRunEnabled = this.preferences['yukibana.autoRun'] ?? false;
+        this.preferenceService.onPreferenceChanged(change => {
+            // Settings is the other way to turn this on, and the checkbox has to agree with it.
+            // `PreferenceChange` carries no value in this Theia version, so read it back.
+            if (change.preferenceName !== 'yukibana.autoRun') {
+                return;
+            }
+            const enabled = this.preferences['yukibana.autoRun'] ?? false;
+            if (enabled !== this.autoRunEnabled) {
+                this.autoRunEnabled = enabled;
+                this.onAutoRunChangedEmitter.fire();
+            }
+        });
 
         this.engine.onStatusChanged(status => {
             this.renderStatus(status);
@@ -441,7 +478,12 @@ export class ScalaRunContribution
     async run(target: LinkTarget, options: { quiet?: boolean } = {}): Promise<void> {
         const { quiet = false } = options;
         if (this.running) {
-            if (!quiet) {
+            if (quiet) {
+                // An autorun save arriving mid-run: the edit that triggered it is newer than
+                // what is running, so remember to run again rather than drop it. Dropping left
+                // the Output showing the previous edit's result with nothing to say why.
+                this.runQueuedWhileBusy = true;
+            } else {
                 this.messages.info('A Scala program is already running.');
             }
             return;
@@ -498,6 +540,10 @@ export class ScalaRunContribution
             }
         } finally {
             this.running = false;
+            if (this.runQueuedWhileBusy) {
+                this.runQueuedWhileBusy = false;
+                this.scheduleAfterEdit('run');
+            }
         }
     }
 
@@ -611,26 +657,31 @@ export class ScalaRunContribution
 
         const root = new URI(roots[0].resource.toString());
         const entry = root.resolve(EXAMPLE_ENTRY_FILE);
-        if (await this.fileService.exists(entry)) {
-            await this.editorManager.open(entry);
-            return;
-        }
-
-        const { files } = await this.sources.collect();
-        if (Object.keys(files).length > 0) {
-            return;
-        }
-
+        // Deliberately not gated on the entry file being absent. A workspace that already has
+        // `Main.scala` is the common case - anyone who opened this before the examples existed
+        // has exactly that, and the old gate meant they kept a lone hello-world forever. It
+        // also repairs a workspace missing one example file, whether deleted or half-written,
+        // instead of leaving it in a state where every run fails.
         await this.writeExampleWorkspace(root);
         await this.editorManager.open(entry);
     }
 
-    /** Write the example files, leaving anything already there alone. */
+    /**
+     * Write any example file that is missing, and replace one we recognise as our own.
+     *
+     * Never overwrites something a person may have written: a file is replaced only when its
+     * contents match a sample an earlier version of this extension seeded, byte for byte.
+     */
     protected async writeExampleWorkspace(root: URI): Promise<void> {
         for (const [name, source] of Object.entries(EXAMPLE_WORKSPACE)) {
             const file = root.resolve(name);
             if (!(await this.fileService.exists(file))) {
                 await this.fileService.create(file, source);
+                continue;
+            }
+            const existing = await this.fileService.read(file);
+            if (isSupersededSample(name, existing.value)) {
+                await this.fileService.write(file, source);
             }
         }
     }

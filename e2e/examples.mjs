@@ -1,0 +1,52 @@
+/**
+ * Unit checks for the seeded example workspace.
+ *
+ * These need no browser, so they run in milliseconds - which matters, because the rules they
+ * cover are the kind that fail silently. A workspace that is never upgraded still opens; a
+ * file wrongly replaced still compiles. Both were shipped once.
+ */
+import { EXAMPLE_WORKSPACE, EXAMPLE_ENTRY_FILE, isSupersededSample } from "../packages/theia-scala/lib/common/examples.js";
+
+let failures = 0;
+function check(name, condition, detail = "") {
+    if (!condition) { failures++; }
+    console.log(`${condition ? "PASS" : "FAIL"}  ${name}${condition ? "" : `\n      ${detail}`}`);
+}
+
+const names = Object.keys(EXAMPLE_WORKSPACE);
+
+check("the entry file is one of the examples", names.includes(EXAMPLE_ENTRY_FILE), names.join(", "));
+check("every example is a non-empty .scala file",
+    names.every(name => name.endsWith(".scala") && EXAMPLE_WORKSPACE[name].trim().length > 0), names.join(", "));
+
+// Exactly one entry point, or the engine cannot choose which program to run.
+const declaredMains = names.filter(name => /^@main\b|\n@main\b/.test(EXAMPLE_WORKSPACE[name]));
+check("exactly one file declares @main", declaredMains.length === 1, `declared in: ${declaredMains.join(", ") || "none"}`);
+
+// The examples exist to be read; a file nobody references is a file nobody opens.
+const referenced = names.filter(name => {
+    const object = name.replace(/\.scala$/, "");
+    if (name === EXAMPLE_ENTRY_FILE) { return true; }
+    return names.some(other => other !== name && EXAMPLE_WORKSPACE[other].includes(object));
+});
+check("every example is referenced by another", referenced.length === names.length,
+    `unreferenced: ${names.filter(n => !referenced.includes(n)).join(", ")}`);
+
+// The upgrade rule: replace what we wrote, never what someone edited.
+const legacySample = `@main def hello(): Unit =
+  val squares = (1 to 5).map(n => n * n)
+  println(s"squares: \${squares.mkString(", ")}")
+  println(s"sum = \${squares.sum}")
+`;
+check("the previous sample is recognised as ours to replace",
+    isSupersededSample(EXAMPLE_ENTRY_FILE, legacySample));
+check("an edited copy of it is left alone",
+    !isSupersededSample(EXAMPLE_ENTRY_FILE, legacySample + "\nval mine = 1\n"));
+check("a file with another name is never replaced",
+    !isSupersededSample("Shape.scala", legacySample));
+check("the current entry file is not itself superseded",
+    !isSupersededSample(EXAMPLE_ENTRY_FILE, EXAMPLE_WORKSPACE[EXAMPLE_ENTRY_FILE]),
+    "otherwise seeding would rewrite it on every load");
+
+console.log(failures === 0 ? "\nAll example checks passed." : `\n${failures} check(s) failed.`);
+process.exit(failures === 0 ? 0 : 1);

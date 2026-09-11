@@ -16,7 +16,8 @@
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "start:playground": "node scripts/dev-server.mjs",
     "test:e2e": "node e2e/playground.mjs",
-    "test:ide": "node e2e/ide.mjs"
+    "test:ide": "node e2e/examples.mjs && node e2e/ide.mjs",
+    "test:examples": "node e2e/examples.mjs"
   },
   "engines": {
     "node": ">=20"

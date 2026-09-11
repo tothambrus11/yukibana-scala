@@ -23,6 +23,7 @@ vendor/scala-toolchain-wasm   the pinned toolchain release, including its host r
 | Status bar | toolchain state: idle, loading, ready, compiling, failed |
 | Preferences | `yukibana.outputTarget` (`js` or `wasm`), `yukibana.compileOnSave`, `yukibana.autoRun`, and the URLs of the engine and toolchain |
 | First run | seeds `file:///workspace` with the example files below and opens `Main.scala` |
+| Every run | adds any example file that is missing, so a deleted or half-written workspace repairs itself |
 
 Sources are collected from the workspace, and unsaved editor content wins over what is on
 disk, so Run reflects what you see without saving first.
@@ -55,6 +56,26 @@ there is something to read and change:
 The tests are hand-rolled because they have to be: nothing here reaches Maven Central, so
 ScalaTest and munit are unavailable. Seeing a test framework be *this small* is arguably worth
 the substitution.
+
+Seeding runs on every load, not only the first. It adds missing files and never overwrites
+anything, with one exception: `Main.scala` is replaced when its contents are byte-identical to
+a sample an earlier version seeded, so someone who arrived before these examples existed gets
+them rather than keeping a lone hello-world forever. A file edited by one character is theirs.
+`isSupersededSample` is that rule, and `e2e/examples.mjs` is where it is pinned down.
+
+### Testing
+
+```bash
+npm run test:examples   # milliseconds, no browser: the seeding rules and the example set
+npm run test:ide        # the above, then the browser suite
+```
+
+Assertions about a *run* must use `expectRunProduces`, never `waitForText`. The visible text
+includes the editor and the Output view, and a program's output stays on screen between tests,
+so waiting for a string that is already there succeeds without anything happening - which is
+how a toolbar test once reported success while the button did nothing. `waitForFreshText`
+fails loudly if the text is already present, and `expectRunProduces` watches the Output clear
+and refill, which is what distinguishes this run from the last one.
 
 ## How the engine is loaded
 

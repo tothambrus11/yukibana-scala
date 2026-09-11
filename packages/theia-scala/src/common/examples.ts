@@ -158,3 +158,30 @@ object RecursionSpec:
 
 /** The file a visitor should be looking at when the workspace opens. */
 export const EXAMPLE_ENTRY_FILE = 'Main.scala';
+
+/**
+ * `Main.scala` as earlier versions seeded it.
+ *
+ * Someone who visited before the examples existed has a workspace containing exactly this and
+ * nothing else, and would otherwise keep it forever - the seeding only ever ran when
+ * `Main.scala` was missing. Replacing a file byte-identical to what we wrote ourselves is
+ * safe; anything they have touched is left alone.
+ */
+const SUPERSEDED_SAMPLES: readonly string[] = [
+    `@main def hello(): Unit =
+  val squares = (1 to 5).map(n => n * n)
+  println(s"squares: \${squares.mkString(", ")}")
+  println(s"sum = \${squares.sum}")
+`,
+];
+
+/**
+ * May this file be replaced with the current example?
+ *
+ * Only the entry file, and only when its contents are byte-identical to something an earlier
+ * version of this extension wrote. Anything a person has touched - even by one character - is
+ * theirs, and upgrading is never worth losing someone's work.
+ */
+export function isSupersededSample(name: string, content: string): boolean {
+    return name === EXAMPLE_ENTRY_FILE && SUPERSEDED_SAMPLES.includes(content);
+}

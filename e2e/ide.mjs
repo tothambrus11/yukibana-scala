@@ -28,6 +28,9 @@ async function freePort() {
 
 const PORT = await freePort();
 const BASE_URL = `http://127.0.0.1:${PORT}/`;
+
+/** What the seeded examples print when their tests pass. See packages/theia-scala/src/common/examples.ts. */
+const CHECKS_PASSED = "All 12 checks passed.";
 // FRONTEND=dist/cloudflare points the same suite at the deployable build.
 const FRONTEND = process.env.FRONTEND ?? "packages/theia-app/lib/frontend";
 
@@ -99,6 +102,56 @@ async function waitForText(page, needle, timeout) {
     );
 }
 
+function visibleText(page) {
+    return page.evaluate(() => document.body.innerText.replace(/\s+/g, " "));
+}
+
+/**
+ * Wait for text that is not on screen yet, and fail loudly if it already is.
+ *
+ * The trap this closes: `document.body.innerText` covers the editor *and* the Output view, and
+ * a program's output stays on screen between tests. So waiting for "All 12 checks passed."
+ * after an earlier run succeeds on the first poll whether or not anything ran - and a version
+ * of the toolbar test did exactly that, reporting success while the button did nothing.
+ */
+async function waitForFreshText(page, needle, timeout) {
+    const wanted = needle.replace(/\s+/g, " ").trim();
+    const before = await visibleText(page);
+    assert(
+        !before.includes(wanted),
+        `"${wanted}" was already on screen, so waiting for it would prove nothing. ` +
+            "Use expectRunProduces, or assert on something only this action can produce.",
+    );
+    await waitForText(page, wanted, timeout);
+}
+
+/**
+ * Trigger a run and prove *that run* produced the output.
+ *
+ * Running clears the Output channel before it starts, so the previous result disappears and
+ * comes back. Watching for both edges is what distinguishes "this run worked" from "the last
+ * one did" - the whole difficulty being that two runs of the same program look identical.
+ *
+ * Use this for every assertion about a run. `waitForText` alone is only safe for text that
+ * cannot already be present.
+ */
+async function expectRunProduces(page, trigger, needle, timeout) {
+    const wanted = needle.replace(/\s+/g, " ").trim();
+    const wasPresent = (await visibleText(page)).includes(wanted);
+    await trigger();
+
+    if (wasPresent) {
+        // Poll fast: the gap between the channel clearing and the result arriving is the run
+        // itself, which for a warm toolchain is about a second.
+        await page.waitForFunction(
+            text => !document.body.innerText.replace(/\s+/g, " ").includes(text),
+            wanted,
+            { timeout: 60_000, polling: 50 },
+        );
+    }
+    await waitForText(page, wanted, timeout);
+}
+
 /**
  * Focus the editor the workbench seeded. (Quick open is deliberately not used: Ctrl+P is
  * taken by the browser's print dialog in a headless run.)
@@ -165,9 +218,8 @@ try {
     });
 
     await check("runs the sample program and shows its output", async () => {
-        await runCommand(page, "Scala: Run as JavaScript");
-        // The toolchain downloads and instantiates 62 MB on first use.
-        await waitForText(page, "All 12 checks passed.", 300_000);
+        // The toolchain downloads and instantiates ~35 MB on first use.
+        await expectRunProduces(page, () => runCommand(page, "Scala: Run as JavaScript"), CHECKS_PASSED, 300_000);
         await waitForText(page, "3628800", 30_000);
     });
 
@@ -175,8 +227,11 @@ try {
         await focusEditor(page);
         const runButton = page.locator('[id="yukibana.scala.run"]').first();
         await runButton.waitFor({ state: "visible", timeout: 30_000 });
-        await runButton.click();
-        await waitForText(page, "All 12 checks passed.", 300_000);
+        assert(
+            /\bRun\b/.test((await runButton.innerText()) || ""),
+            "the toolbar button should say Run, not render as a bare icon",
+        );
+        await expectRunProduces(page, () => runButton.click(), CHECKS_PASSED, 300_000);
     });
 
     await check("recognises Scala as a language, not plain text", async () => {
@@ -188,9 +243,8 @@ try {
     });
 
     await check("links and runs the program as WebAssembly", async () => {
-        await runCommand(page, "Scala: Run as WebAssembly");
-        await waitForText(page, "KB WebAssembly", 300_000);
-        await waitForText(page, "All 12 checks passed.", 30_000);
+        await expectRunProduces(page, () => runCommand(page, "Scala: Run as WebAssembly"), CHECKS_PASSED, 300_000);
+        await waitForText(page, "KB WebAssembly", 30_000);
     });
 
     await check("reports compiler errors in the Problems view", async () => {
@@ -232,9 +286,12 @@ try {
         await focusEditor(page);
         await page.keyboard.press("Control+a");
         await page.keyboard.type('@main def run(): Unit = println(s"autorun ${6 * 7}")\n');
+        await page.keyboard.press("Escape");
         await page.keyboard.press("Control+s");
 
-        await waitForText(page, "autorun 42", 300_000);
+        // Fresh rather than clear-then-fill: this text has never been printed before, and the
+        // save may land while the run that ticking the box started is still going.
+        await waitForFreshText(page, "autorun 42", 300_000);
 
         await autorun.uncheck();
         assert(!(await autorun.isChecked()), "unticking autorun should untick the box");
