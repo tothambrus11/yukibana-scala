@@ -81,7 +81,7 @@ resolve relative to it.
 ## Upgrading
 
 ```bash
-TOOLCHAIN_VERSION=0.3.3 scripts/fetch-toolchain.sh --compressed   # try it
+TOOLCHAIN_VERSION=0.3.4 scripts/fetch-toolchain.sh --compressed   # try it
 npm run test:e2e && npm run test:ide                              # prove it
 ```
 

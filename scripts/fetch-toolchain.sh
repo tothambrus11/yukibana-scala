@@ -17,7 +17,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # The toolchain release this IDE is pinned to. Bump deliberately: a new compiler can change
 # behaviour, and the manifest inside records exactly what you got.
-TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION:-0.3.2}"
+TOOLCHAIN_VERSION="${TOOLCHAIN_VERSION:-0.3.3}"
 TOOLCHAIN_REPO="${TOOLCHAIN_REPO:-tothambrus11/scala-toolchain-wasm}"
 TARGET_DIR="${TARGET_DIR:-$REPO_ROOT/vendor/scala-toolchain-wasm}"
 
