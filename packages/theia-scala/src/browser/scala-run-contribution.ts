@@ -70,6 +70,12 @@ export function describeToolchain(info: ScalaEngineInfo | undefined): string {
                 `${info.hostVersion} - a cached copy of an older release is being served. ` +
                 'Reload bypassing the cache.',
         );
+    } else if (info.olderThanFrontend) {
+        parts.push(
+            `This toolchain (host ${info.hostVersion ?? 'unknown'}) is older than this editor ` +
+                'expects, so a cached copy of an earlier release is being served. Reload ' +
+                'bypassing the cache (Ctrl/Cmd-Shift-R) to get the current one.',
+        );
     }
 
     return parts.join(' ');
@@ -112,7 +118,10 @@ export class ScalaRunContribution
     protected running = false;
 
     onStart(): void {
-        this.engine.onStatusChanged(status => this.renderStatus(status));
+        this.engine.onStatusChanged(status => {
+            this.renderStatus(status);
+            this.warnOnceAboutStaleToolchain();
+        });
         this.renderStatus(this.engine.currentStatus);
 
         this.engine.onOutput(line => this.channel.appendLine(line));
@@ -129,6 +138,26 @@ export class ScalaRunContribution
             }
         });
 
+    }
+
+    protected staleToolchainReported = false;
+
+    /**
+     * Say so, once, when the loaded toolchain is not the one this frontend was built against.
+     *
+     * Silence here is expensive: the browser is running an older compiler than we think, which
+     * shows up as features that "don't work" and results that do not match the code. It happens
+     * when a cached copy of a previous release is served - `/toolchain/*` was once marked
+     * immutable for a year - and it is not self-healing, because the stale copy is what answers
+     * the request. Only the person at the keyboard can fix it, so only they can be told.
+     */
+    protected warnOnceAboutStaleToolchain(): void {
+        const info = this.engine.engineInfo;
+        if (this.staleToolchainReported || !(info?.versionMismatch || info?.olderThanFrontend)) {
+            return;
+        }
+        this.staleToolchainReported = true;
+        this.messages.warn(describeToolchain(info));
     }
 
     /** Opening an editor only works once the shell has a layout, so seed here, not in onStart. */

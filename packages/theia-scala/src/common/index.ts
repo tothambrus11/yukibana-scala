@@ -61,6 +61,14 @@ export interface ScalaEngineInfo {
     incrementalLinking?: boolean;
     /** Exports the loaded compiler bundle does not provide. */
     missingExports?: string[];
+    /**
+     * The loaded distribution predates this frontend.
+     *
+     * Distinct from `versionMismatch`, which compares the two halves of one distribution and so
+     * cannot see this: a wholly stale toolchain is internally consistent and looks fine from
+     * the inside. What gives it away is the frontend asking for something it does not have.
+     */
+    olderThanFrontend?: boolean;
 }
 
 /** The workspace-relative file name the engine compiles under. */

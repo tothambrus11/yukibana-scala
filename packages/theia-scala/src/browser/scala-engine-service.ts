@@ -6,7 +6,8 @@ import { LinkTarget, ScalaEngineInfo, ScalaRunResult } from '../common';
 /** The part of `@yukibana/scala-engine`'s client that this extension uses. */
 interface EngineClient {
     init(): Promise<ScalaEngineInfo>;
-    warmUp(target?: LinkTarget): Promise<{ ok: boolean; durationMs: number }>;
+    /** Optional: a distribution older than this frontend does not provide it. */
+    warmUp?(target?: LinkTarget): Promise<{ ok: boolean; durationMs: number }>;
     compile(files: Record<string, string>, options?: string[]): Promise<ScalaRunResult>;
     run(files: Record<string, string>, config?: { mainClass?: string; target?: LinkTarget }): Promise<ScalaRunResult>;
     on(event: 'progress' | 'stdout' | 'error', listener: (payload: any) => void): () => void;
@@ -123,15 +124,24 @@ export class ScalaEngineService {
             engine.on('progress', ({ stage }: { stage: string }) => this.setStatus('loading', STAGE_LABELS[stage] ?? stage));
             engine.on('stdout', ({ chunk }: { chunk: string }) => this.onOutputEmitter.fire(chunk));
 
-            this.info = await engine.init();
+            const info = await engine.init();
+            // A distribution this frontend is newer than answers `init` perfectly well; what it
+            // cannot do is everything asked of it afterwards. `warmUp` is the cheapest tell -
+            // it has existed since 0.2.0, so its absence dates the toolchain precisely.
+            this.info = { ...info, olderThanFrontend: typeof engine.warmUp !== 'function' };
             this.engine = engine;
             this.setStatus('ready');
 
             // Pay the one-off costs - the classpath scan and the first link's IR parse - now,
-            // in the background, rather than in the user's first Run. Failure here is not
-            // interesting: the next real compile does the same work.
-            engine
-                .warmUp(this.preferences.get<LinkTarget>('yukibana.outputTarget', 'js'))
+            // in the background, rather than in the user's first Run. Nothing here may fail the
+            // load: the engine is already usable, and the next real compile does the same work.
+            //
+            // `.catch()` alone was not enough. A toolchain older than this frontend has no
+            // `warmUp` at all, so the call threw *synchronously*, before any promise existed -
+            // straight past the catch, into the try below, and reported as "the toolchain failed
+            // to load". An optimisation took down the thing it was optimising.
+            void Promise.resolve()
+                .then(() => engine.warmUp?.(this.preferences.get<LinkTarget>('yukibana.outputTarget', 'js')))
                 .catch(() => undefined);
 
             return engine;

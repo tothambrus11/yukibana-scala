@@ -136,7 +136,11 @@ engine
     document.body.dataset.ready = "true";
 
     // Warm the compiler and linker in the background so the first Run is not the slow one.
-    engine.warmUp(targetEl.value).catch(() => undefined);
+    // Guarded: a toolchain older than this page has no warmUp, and calling it would throw
+    // synchronously - past the catch, and out of a path where nothing should fail.
+    void Promise.resolve()
+      .then(() => engine.warmUp?.(targetEl.value))
+      .catch(() => undefined);
   })
   .catch((error) => {
     setStatus("Toolchain failed to load", "error");
