@@ -81,9 +81,14 @@ resolve relative to it.
 ## Upgrading
 
 ```bash
-TOOLCHAIN_VERSION=0.3.1 scripts/fetch-toolchain.sh   # try it
-npm run test:e2e && npm run test:ide                 # prove it
+TOOLCHAIN_VERSION=0.3.3 scripts/fetch-toolchain.sh --compressed   # try it
+npm run test:e2e && npm run test:ide                              # prove it
 ```
+
+`--compressed` is not optional here. It is the variant the deploy serves, and it differs in a
+way that matters: `main.wasm` is not on disk at all, only `main.wasm.gz`, reached through a
+`fetch` shim. Accepting an upgrade against the plain tarball tests a distribution nobody
+receives - which is exactly how the compressed path reached production uncovered.
 
 Then edit `TOOLCHAIN_VERSION` in `scripts/fetch-toolchain.sh` and commit. The e2e suites are
 the acceptance test for a toolchain upgrade — they compile and run real Scala on both
