@@ -71,5 +71,29 @@ export interface ScalaEngineInfo {
     olderThanFrontend?: boolean;
 }
 
+/**
+ * WebAssembly features the Scala compiler needs, and which of them this browser lacks.
+ *
+ * Duplicated from the toolchain's own check on purpose: that one runs inside the engine, which
+ * means it only speaks up once someone presses Run. Asking here costs three property reads and
+ * lets the editor say, on the way in, that this browser cannot run Scala - rather than looking
+ * ready and failing later.
+ *
+ * JSPI is the hard requirement. The compiler reads jars asynchronously from JavaScript, so it
+ * has to suspend across a JS promise, and today only Chromium 137+ can. Firefox and Safari
+ * have not shipped it.
+ */
+export function missingWasmFeatures(): string[] {
+    const wasm = (globalThis as { WebAssembly?: Record<string, unknown> }).WebAssembly;
+    if (!wasm || typeof wasm !== 'object') {
+        return ['WebAssembly'];
+    }
+    const missing: string[] = [];
+    if (typeof wasm.JSTag === 'undefined') { missing.push('WebAssembly.JSTag'); }
+    if (typeof wasm.Suspending !== 'function') { missing.push('WebAssembly.Suspending'); }
+    if (typeof wasm.promising !== 'function') { missing.push('WebAssembly.promising'); }
+    return missing;
+}
+
 /** The workspace-relative file name the engine compiles under. */
 export const WORKSPACE_PREFIX = '/workspace/';

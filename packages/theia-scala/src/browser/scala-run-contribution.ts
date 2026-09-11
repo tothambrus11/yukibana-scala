@@ -12,7 +12,7 @@ import { FileChangeType } from '@theia/filesystem/lib/common/files';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX } from '../common';
+import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX, missingWasmFeatures } from '../common';
 import { EngineStatus, ScalaEngineService } from './scala-engine-service';
 import { ScalaPreferences } from './scala-preferences';
 import { ScalaWorkspace } from './scala-workspace';
@@ -118,6 +118,8 @@ export class ScalaRunContribution
     protected running = false;
 
     onStart(): void {
+        this.warnIfBrowserCannotRunScala();
+
         this.engine.onStatusChanged(status => {
             this.renderStatus(status);
             this.warnOnceAboutStaleToolchain();
@@ -138,6 +140,25 @@ export class ScalaRunContribution
             }
         });
 
+    }
+
+    /**
+     * Say up front when this browser cannot run the compiler at all.
+     *
+     * Without this the editor opens, looks entirely healthy, and only admits the problem when
+     * someone presses Run - by which point whatever else went wrong along the way (Theia's own
+     * storage failing, say) has had time to look like the cause.
+     */
+    protected warnIfBrowserCannotRunScala(): void {
+        const missing = missingWasmFeatures();
+        if (missing.length === 0) {
+            return;
+        }
+        this.messages.warn(
+            'This browser cannot run Scala: it lacks ' + missing.join(', ') + '. ' +
+                'The compiler runs on WebAssembly JSPI, which today means Chrome or Edge 137 or ' +
+                'newer. Editing works; compiling and running do not.',
+        );
     }
 
     protected staleToolchainReported = false;
