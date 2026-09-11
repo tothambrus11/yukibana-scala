@@ -5,9 +5,11 @@ import * as React from '@theia/core/shared/react';
 import { Emitter } from '@theia/core/lib/common/event';
 import { PreferenceService, PreferenceScope } from '@theia/core/lib/common/preferences';
 import {
+    TabBarToolbar,
     TabBarToolbarContribution,
     TabBarToolbarRegistry,
 } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import { Widget } from '@theia/core/lib/browser/widgets';
 import { MenuContribution, MenuModelRegistry } from '@theia/core/lib/common/menu';
 import { CommonMenus, FrontendApplicationContribution, StatusBar, StatusBarAlignment } from '@theia/core/lib/browser';
 import { KeybindingContribution, KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
@@ -17,10 +19,10 @@ import { ProblemManager } from '@theia/markers/lib/browser/problem/problem-manag
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileChangeType } from '@theia/filesystem/lib/common/files';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
-import { EditorManager } from '@theia/editor/lib/browser';
+import { EditorManager, EditorWidget } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX, missingWasmFeatures } from '../common';
-import { EXAMPLE_WORKSPACE, EXAMPLE_ENTRY_FILE, isSupersededSample } from '../common/examples';
+import { LinkTarget, ScalaDiagnostic, ScalaEngineInfo, ScalaRunResult, WORKSPACE_PREFIX, SCALA_EXTENSION, missingWasmFeatures } from '../common';
+import { EXAMPLE_WORKSPACE, EXAMPLE_ENTRY_FILE, canBeSuperseded, isSupersededSample } from '../common/examples';
 import { EngineStatus, ScalaEngineService } from './scala-engine-service';
 import { ScalaPreferences } from './scala-preferences';
 import { ScalaWorkspace } from './scala-workspace';
@@ -129,15 +131,16 @@ export function describeFailure(error: unknown): string[] {
 const PROBLEM_OWNER = 'scala';
 const STATUS_BAR_ID = 'yukibana-scala-status';
 const OUTPUT_CHANNEL = 'Scala';
-const COMPILE_ON_SAVE_DELAY_MS = 400;
+/** How long to wait for edits to stop before reacting to them. */
+const AFTER_EDIT_DELAY_MS = 400;
 const SEEDED_FLAG = 'yukibana.workspace.seeded';
 const DEFAULT_WORKSPACE = 'file:///workspace';
 
 
 /**
- * Wires the browser Scala toolchain into the workbench: commands to compile and run, program
- * output in the Output view, compiler diagnostics in the Problems view, and toolchain state
- * in the status bar.
+ * Wires the browser Scala toolchain into the workbench: a Run button and an Autorun checkbox
+ * on the editor toolbar, commands to compile and run, program output in the Output view,
+ * compiler diagnostics in the Problems view, and toolchain state in the status bar.
  */
 @injectable()
 export class ScalaRunContribution
@@ -159,7 +162,6 @@ export class ScalaRunContribution
     @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService;
     @inject(EditorManager) protected readonly editorManager: EditorManager;
     @inject(PreferenceService) protected readonly preferenceService: PreferenceService;
-    @inject(CommandRegistry) protected readonly commandRegistry: CommandRegistry;
 
     /**
      * Run and Autorun, on the editor's toolbar.
@@ -169,80 +171,60 @@ export class ScalaRunContribution
      * program now, and a checkbox that keeps running it as they edit.
      */
     registerToolbarItems(registry: TabBarToolbarRegistry): void {
+        const isVisible = (widget?: Widget) => this.isScalaEditor(widget);
+
+        // Declared, not rendered. Theia blanks a toolbar item's text as soon as it has an icon
+        // ("only present text if there is no icon"), so `$(play) Run` is a bare triangle - but
+        // a label with no icon is a supported case it styles for. Taking it back gives us the
+        // keybinding appended to the tooltip, command enablement, the action-item classes and
+        // keyboard activation, all of which a hand-rolled button has to reimplement or drop.
         registry.registerItem({
             id: 'yukibana.scala.run',
+            command: ScalaCommands.RUN.id,
+            text: 'Run',
+            tooltip: 'Compile and run the Scala program',
             priority: 0,
             group: 'navigation',
-            isVisible: widget => this.isScalaEditor(widget),
-            // Rendered rather than declared, because Theia blanks a toolbar item's text as
-            // soon as it has an icon ("only present text if there is no icon"), so the
-            // obvious `$(play) Run` renders as a bare triangle. The word is the point.
-            render: () =>
-                React.createElement(
-                    'button',
-                    {
-                        key: 'yukibana-run',
-                        id: 'yukibana.scala.run',
-                        className: 'yukibana-run theia-button',
-                        title: 'Compile and run the Scala program (F5)',
-                        style: {
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            margin: '0 4px',
-                            cursor: 'pointer',
-                            whiteSpace: 'nowrap',
-                        },
-                        onClick: () => this.commandRegistry.executeCommand(ScalaCommands.RUN.id),
-                    },
-                    React.createElement('span', { className: 'codicon codicon-play', 'aria-hidden': true }),
-                    'Run',
-                ),
+            isVisible,
         });
 
         registry.registerItem({
             id: 'yukibana.scala.autorun',
             priority: 1,
             group: 'navigation',
-            isVisible: widget => this.isScalaEditor(widget),
+            isVisible,
             // A real checkbox rather than a toggled icon: "is autorun on?" should be answerable
-            // by looking, not by remembering what the highlighted state meant.
+            // by looking, not by remembering what the highlighted state meant. A checkbox is
+            // the one thing the declarative API cannot express, so this one is rendered.
             onDidChange: this.onAutoRunChangedEmitter.event,
-            render: () =>
-                React.createElement(
-                    'label',
-                    {
-                        key: 'yukibana-autorun',
-                        className: 'yukibana-autorun',
-                        title: 'Run the program again every time you save',
-                        // Styled here rather than in a stylesheet: this extension ships no CSS,
-                        // and one label does not justify a build step for it.
-                        style: {
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '0 6px',
-                            cursor: 'pointer',
-                            userSelect: 'none',
-                            whiteSpace: 'nowrap',
-                        },
-                    },
-                    React.createElement('input', {
-                        type: 'checkbox',
-                        checked: this.autoRunEnabled,
-                        style: { margin: 0, cursor: 'pointer' },
-                        onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
-                            this.setAutoRun(event.target.checked),
-                    }),
-                    'Autorun',
-                ),
+            render: () => this.renderAutoRunCheckbox(),
         });
     }
 
+    protected renderAutoRunCheckbox(): React.ReactNode {
+        return React.createElement(
+            'label',
+            {
+                key: 'yukibana-autorun',
+                className: `yukibana-autorun ${TabBarToolbar.Styles.TAB_BAR_TOOLBAR_ITEM} enabled`,
+                title: 'Run the program again every time you save',
+                // The class above brings Theia's toolbar-item layout; these are the two things
+                // it has no opinion about, so a stylesheet for them would not earn its build step.
+                style: { padding: '0 6px', whiteSpace: 'nowrap' },
+            },
+            React.createElement('input', {
+                type: 'checkbox',
+                checked: this.autoRunEnabled,
+                style: { margin: '0 4px 0 0', cursor: 'pointer' },
+                onChange: (event: React.ChangeEvent<HTMLInputElement>) => this.setAutoRun(event.target.checked),
+            }),
+            'Autorun',
+        );
+    }
+
     /** The toolbar is per-widget; these belong to an editor holding Scala. */
-    protected isScalaEditor(widget?: unknown): boolean {
-        const editor = widget as { editor?: { uri?: { path?: { ext?: string } } } } | undefined;
-        return editor?.editor?.uri?.path?.ext === '.scala';
+    protected isScalaEditor(widget?: Widget): boolean {
+        return widget instanceof EditorWidget && widget.editor.uri.path.ext === SCALA_EXTENSION;
     }
 
     protected readonly onAutoRunChangedEmitter = new Emitter<void>();
@@ -258,17 +240,33 @@ export class ScalaRunContribution
      */
     protected autoRunEnabled = false;
 
+    /** Counts runs this session, so one run's output is distinguishable from the next. */
+    protected runCount = 0;
+
     /** A save arrived while a run was in flight; run again once it finishes. */
     protected runQueuedWhileBusy = false;
 
+    /**
+     * Move the field the checkbox reflects, and redraw only when it actually changed.
+     *
+     * Coerced, not asserted: the preference proxy is typed `boolean` but returns `undefined`
+     * when nothing has been written and no default reaches it, and `checked={undefined}` turns
+     * React's checkbox into an uncontrolled input that stops tracking this field at all.
+     */
+    protected applyAutoRun(enabled: boolean | undefined): void {
+        if (!!enabled !== this.autoRunEnabled) {
+            this.autoRunEnabled = !!enabled;
+            this.onAutoRunChangedEmitter.fire();
+        }
+    }
+
     protected async setAutoRun(enabled: boolean): Promise<void> {
-        this.autoRunEnabled = enabled;
-        this.onAutoRunChangedEmitter.fire();
+        this.applyAutoRun(enabled);
 
         if (enabled) {
             // Acting immediately is the point of ticking it - otherwise nothing happens until
             // the next save, which reads as the checkbox not working.
-            this.run(this.preferences['yukibana.outputTarget'], { quiet: true }).catch(() => undefined);
+            this.runQuietly();
         }
 
         // Persistence is a nicety; the checkbox must not wait for it or depend on it.
@@ -279,22 +277,19 @@ export class ScalaRunContribution
         }
     }
 
-    protected compileOnSaveTimer: number | undefined;
+    protected afterEditTimer: number | undefined;
     protected running = false;
 
     onStart(): void {
         this.warnIfBrowserCannotRunScala();
-        this.autoRunEnabled = this.preferences['yukibana.autoRun'] ?? false;
-        this.preferenceService.onPreferenceChanged(change => {
+        this.applyAutoRun(this.preferences['yukibana.autoRun']);
+        // The injected proxy, not the global service: it already filters to this schema's own
+        // keys, so the listener does not run for every preference in the workbench.
+        this.preferences.onPreferenceChanged(change => {
             // Settings is the other way to turn this on, and the checkbox has to agree with it.
             // `PreferenceChange` carries no value in this Theia version, so read it back.
-            if (change.preferenceName !== 'yukibana.autoRun') {
-                return;
-            }
-            const enabled = this.preferences['yukibana.autoRun'] ?? false;
-            if (enabled !== this.autoRunEnabled) {
-                this.autoRunEnabled = enabled;
-                this.onAutoRunChangedEmitter.fire();
+            if (change.preferenceName === 'yukibana.autoRun') {
+                this.applyAutoRun(this.preferences['yukibana.autoRun']);
             }
         });
 
@@ -312,7 +307,7 @@ export class ScalaRunContribution
                 return;
             }
             const touchedScala = event.changes.some(
-                change => change.type !== FileChangeType.DELETED && change.resource.path.ext === '.scala',
+                change => change.type !== FileChangeType.DELETED && change.resource.path.ext === SCALA_EXTENSION,
             );
             if (touchedScala) {
                 // Autorun means run: compiling alone would leave the output showing the result
@@ -320,7 +315,6 @@ export class ScalaRunContribution
                 this.scheduleAfterEdit(autoRun ? 'run' : 'compile');
             }
         });
-
     }
 
     /**
@@ -424,23 +418,34 @@ export class ScalaRunContribution
      * already running.
      */
     protected scheduleAfterEdit(action: 'compile' | 'run'): void {
-        if (this.compileOnSaveTimer !== undefined) {
-            window.clearTimeout(this.compileOnSaveTimer);
+        if (this.afterEditTimer !== undefined) {
+            window.clearTimeout(this.afterEditTimer);
         }
-        this.compileOnSaveTimer = window.setTimeout(() => {
-            this.compileOnSaveTimer = undefined;
-            const work =
-                action === 'run'
-                    ? this.run(this.preferences['yukibana.outputTarget'], { quiet: true })
-                    : this.compile({ quiet: true });
-            work.catch(() => undefined);
-        }, COMPILE_ON_SAVE_DELAY_MS);
+        this.afterEditTimer = window.setTimeout(() => {
+            this.afterEditTimer = undefined;
+            this.runOrCompileQuietly(action);
+        }, AFTER_EDIT_DELAY_MS);
+    }
+
+    /** React now, without the debounce: the edits that prompted this are already in. */
+    protected runOrCompileQuietly(action: 'compile' | 'run'): void {
+        if (action === 'run') {
+            this.runQuietly();
+        } else {
+            this.compile({ quiet: true }).catch(() => undefined);
+        }
+    }
+
+    /** Start a run at the configured target and ignore how it goes; the Output view has it. */
+    protected runQuietly(): void {
+        this.run(this.preferences['yukibana.outputTarget'], { quiet: true }).catch(() => undefined);
     }
 
     async compile(options: { quiet?: boolean } = {}): Promise<void> {
+        const { quiet = false } = options;
         const { files, uris } = await this.sources.collect();
         if (Object.keys(files).length === 0) {
-            if (!options.quiet) {
+            if (!quiet) {
                 this.messages.warn('No Scala sources found in the workspace.');
             }
             return;
@@ -449,7 +454,7 @@ export class ScalaRunContribution
         const result = await this.engine.compile(files);
         this.publishDiagnostics(result, uris);
 
-        if (options.quiet) {
+        if (quiet) {
             return;
         }
 
@@ -501,7 +506,13 @@ export class ScalaRunContribution
         const channel = this.channel;
         channel.clear();
         channel.show({ preserveFocus: true });
-        channel.appendLine(`Compiling ${Object.keys(files).length} file(s), linking to ${this.describeTarget(target)}...`);
+        // Numbered so two runs of the same program are distinguishable - in a bug report, and
+        // in the tests, which otherwise cannot tell this run's output from the last one's.
+        this.runCount += 1;
+        channel.appendLine(
+            `[run ${this.runCount}] Compiling ${Object.keys(files).length} file(s), ` +
+                `linking to ${this.describeTarget(target)}...`,
+        );
 
         try {
             const result = await this.engine.run(files, target);
@@ -542,7 +553,9 @@ export class ScalaRunContribution
             this.running = false;
             if (this.runQueuedWhileBusy) {
                 this.runQueuedWhileBusy = false;
-                this.scheduleAfterEdit('run');
+                // Directly, not through the debounce: the burst it exists to coalesce ended
+                // while this run was in flight, so waiting again is pure latency.
+                this.runOrCompileQuietly('run');
             }
         }
     }
@@ -560,7 +573,10 @@ export class ScalaRunContribution
                 ? `${(result.linkedBytes / 1024).toFixed(1)} KB ${this.describeTarget(result.target ?? 'js')}`
                 : undefined,
         ].filter(Boolean);
-        return `--- ${parts.join(', ')} ---`;
+        // The run number rides on the *last* line as well as the header. The Output view is a
+        // Monaco editor and virtualises its DOM, so the header scrolls out of existence on a
+        // long run - the tail is the only part reliably on screen, for a reader or a test.
+        return `--- ${parts.join(', ')} --- [run ${this.runCount}]`;
     }
 
     /** Map compiler diagnostics onto the Problems view. */
@@ -635,7 +651,8 @@ export class ScalaRunContribution
      * A workbench with an empty file system is not much of a demo, so on a first visit create
      * a workspace with a sample program and open it.
      *
-     * Opening a workspace reloads the page, so a flag in local storage keeps that to once.
+     * Opening a workspace reloads the page, so a flag in local storage keeps *that* to once;
+     * the seeding itself is idempotent and runs every time, repairing whatever is missing.
      */
     protected async seedWorkspace(): Promise<void> {
         const roots = this.workspaceService.tryGetRoots();
@@ -651,6 +668,8 @@ export class ScalaRunContribution
                 await this.fileService.createFolder(root);
             }
             await this.writeExampleWorkspace(root);
+            // Opening reloads the page, so seeding runs again from the top - the pass above is
+            // what makes the workspace non-empty before that happens.
             await this.workspaceService.open(root);
             return;
         }
@@ -673,10 +692,21 @@ export class ScalaRunContribution
      * contents match a sample an earlier version of this extension seeded, byte for byte.
      */
     protected async writeExampleWorkspace(root: URI): Promise<void> {
+        // Reads only what can matter: this runs on every load, each file costs a round-trip to
+        // the OPFS worker, and `canBeSuperseded` settles five of the six from the name alone,
+        // so five reads and their decodes never happen.
+        //
+        // Sequential on purpose. Issuing the six as a `Promise.all` is the obvious next step
+        // and saves a few tens of milliseconds off a path that is already off the critical
+        // path - but it made the seeded workspace come out incomplete, and an example that
+        // fails to compile costs a visitor far more than the wait.
         for (const [name, source] of Object.entries(EXAMPLE_WORKSPACE)) {
             const file = root.resolve(name);
             if (!(await this.fileService.exists(file))) {
                 await this.fileService.create(file, source);
+                continue;
+            }
+            if (!canBeSuperseded(name)) {
                 continue;
             }
             const existing = await this.fileService.read(file);

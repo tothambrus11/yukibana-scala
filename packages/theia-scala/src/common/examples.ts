@@ -166,6 +166,14 @@ export const EXAMPLE_ENTRY_FILE = 'Main.scala';
  * nothing else, and would otherwise keep it forever - the seeding only ever ran when
  * `Main.scala` was missing. Replacing a file byte-identical to what we wrote ourselves is
  * safe; anything they have touched is left alone.
+ *
+ * **This list is a bridge, not a mechanism, and must not grow.** Recognising our own writing
+ * by keeping a copy of every version we ever shipped costs a hand-escaped duplicate per
+ * revision, in two files, and only ever covers the entry file. If the examples need to be
+ * upgradeable again, record what was written when writing it - a hash per file alongside
+ * `SEEDED_FLAG` - and every file becomes upgradeable with no history to maintain. This entry
+ * exists only for workspaces created before any such record did. `e2e/examples.mjs` fails if
+ * it grows.
  */
 const SUPERSEDED_SAMPLES: readonly string[] = [
     `@main def hello(): Unit =
@@ -183,5 +191,18 @@ const SUPERSEDED_SAMPLES: readonly string[] = [
  * theirs, and upgrading is never worth losing someone's work.
  */
 export function isSupersededSample(name: string, content: string): boolean {
-    return name === EXAMPLE_ENTRY_FILE && SUPERSEDED_SAMPLES.includes(content);
+    return canBeSuperseded(name) && SUPERSEDED_SAMPLES.includes(content);
 }
+
+/**
+ * Could this file ever be replaced, whatever it contains?
+ *
+ * Answerable from the name alone, which is what lets seeding skip reading the five files whose
+ * contents cannot change the outcome.
+ */
+export function canBeSuperseded(name: string): boolean {
+    return name === EXAMPLE_ENTRY_FILE;
+}
+
+/** How many historical samples are recognised. Pinned by e2e/examples.mjs - see the note above. */
+export const SUPERSEDED_SAMPLE_COUNT = SUPERSEDED_SAMPLES.length;

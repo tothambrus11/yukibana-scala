@@ -4,6 +4,7 @@ import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { FileStat } from '@theia/filesystem/lib/common/files';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager } from '@theia/editor/lib/browser';
+import { SCALA_EXTENSION } from '../common';
 
 export interface ScalaSources {
     /** Workspace-relative file name -> source text, as handed to the compiler. */
@@ -12,7 +13,6 @@ export interface ScalaSources {
     uris: Map<string, URI>;
 }
 
-const SCALA_EXTENSION = '.scala';
 const SKIPPED_DIRECTORIES = new Set(['out', 'target', 'node_modules', '.git']);
 
 /**

@@ -8,6 +8,7 @@
  *   scripts/fetch-toolchain.sh && npm run build:ide && scripts/stage-ide-assets.sh
  */
 import { spawn } from "node:child_process";
+import { EXAMPLE_WORKSPACE } from "../packages/theia-scala/lib/common/examples.js";
 import { existsSync, readdirSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { createServer } from "node:net";
@@ -29,8 +30,20 @@ async function freePort() {
 const PORT = await freePort();
 const BASE_URL = `http://127.0.0.1:${PORT}/`;
 
-/** What the seeded examples print when their tests pass. See packages/theia-scala/src/common/examples.ts. */
-const CHECKS_PASSED = "All 12 checks passed.";
+/**
+ * What the seeded examples print when their tests pass.
+ *
+ * Counted from the specs rather than written down: the number is a property of `examples.ts`,
+ * and a hardcoded copy turns "someone added an assertion" into a 300-second timeout whose
+ * cause is invisible from the failure.
+ */
+const CHECKS_PASSED = `All ${countAssertions()} checks passed.`;
+
+function countAssertions() {
+    return Object.entries(EXAMPLE_WORKSPACE)
+        .filter(([name]) => name.endsWith("Spec.scala"))
+        .reduce((total, [, source]) => total + (source.match(/^\s*assert\w+\(/gm) ?? []).length, 0);
+}
 // FRONTEND=dist/cloudflare points the same suite at the deployable build.
 const FRONTEND = process.env.FRONTEND ?? "packages/theia-app/lib/frontend";
 
@@ -92,64 +105,90 @@ async function runCommand(page, label) {
     }
 }
 
-/** Whitespace in the rendered workbench is not worth asserting on. */
-async function waitForText(page, needle, timeout) {
-    const wanted = needle.replace(/\s+/g, " ").trim();
-    await page.waitForFunction(
-        text => document.body.innerText.replace(/\s+/g, " ").includes(text),
-        wanted,
-        { timeout, polling: 500 },
-    );
-}
-
-function visibleText(page) {
-    return page.evaluate(() => document.body.innerText.replace(/\s+/g, " "));
+/**
+ * Read rendered text, with whitespace normalised to single spaces.
+ *
+ * Normalising is not cosmetic. The editor and the Output view are both Monaco, which renders
+ * spaces as non-breaking spaces: `[run 1]` in the document is really `[run\u00a01]`, so a
+ * pattern written with an ordinary space matches nothing at all. Every assertion below reads
+ * through here and applies its pattern to the result, so no caller can reintroduce that. One
+ * predicate that ran against the raw text cost three tests a five-minute timeout each, while
+ * the runs they were waiting for had long since finished and were on screen.
+ */
+function readText(page, selector) {
+    return page.evaluate(css => {
+        const node = css === "body" ? document.body : document.querySelector(css);
+        return (node?.innerText ?? "").replace(/\s+/g, " ");
+    }, selector);
 }
 
 /**
- * Wait for text that is not on screen yet, and fail loudly if it already is.
+ * The text of the Output view, not of the whole page.
  *
- * The trap this closes: `document.body.innerText` covers the editor *and* the Output view, and
- * a program's output stays on screen between tests. So waiting for "All 12 checks passed."
- * after an earlier run succeeds on the first poll whether or not anything ran - and a version
- * of the toolbar test did exactly that, reporting success while the button did nothing.
+ * `document.body.innerText` also covers the editor, so a program's *source* matches an
+ * assertion meant for its *output* - which is how a toolbar test once passed while the button
+ * did nothing. `#outputView` is `OutputWidget.ID`, which Lumino puts on the widget's node.
  */
-async function waitForFreshText(page, needle, timeout) {
-    const wanted = needle.replace(/\s+/g, " ").trim();
-    const before = await visibleText(page);
-    assert(
-        !before.includes(wanted),
-        `"${wanted}" was already on screen, so waiting for it would prove nothing. ` +
-            "Use expectRunProduces, or assert on something only this action can produce.",
-    );
-    await waitForText(page, wanted, timeout);
+const readOutput = page => readText(page, "#outputView");
+const readBody = page => readText(page, "body");
+
+const normalise = needle => needle.replace(/\s+/g, " ").trim();
+
+/**
+ * Poll until `predicate` accepts the text, then return it.
+ *
+ * Node-side rather than `page.waitForFunction`, so a predicate is an ordinary closure over
+ * ordinary values instead of source shipped into the page, and so a timeout can say what it
+ * was waiting for *and* what it saw instead - which is the difference between a diagnosis and
+ * a five-minute "Timeout exceeded".
+ */
+async function waitFor(page, read, predicate, what, timeout) {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+        const text = await read(page);
+        if (predicate(text)) {
+            return text;
+        }
+        if (Date.now() >= deadline) {
+            throw new Error(`timed out after ${timeout} ms waiting for ${what}; saw: ${text.slice(-300) || "(nothing)"}`);
+        }
+        await delay(200);
+    }
+}
+
+/** Whitespace in the rendered workbench is not worth asserting on. */
+function waitForText(page, needle, timeout) {
+    const wanted = normalise(needle);
+    return waitFor(page, readBody, text => text.includes(wanted), JSON.stringify(wanted), timeout);
+}
+
+function waitForOutputText(page, needle, timeout) {
+    const wanted = normalise(needle);
+    return waitFor(page, readOutput, text => text.includes(wanted), `${JSON.stringify(wanted)} in the Output view`, timeout);
+}
+
+/** The highest `[run N]` the Output view is showing; 0 before anything has run. */
+function lastRunNumber(text) {
+    const numbers = [...text.matchAll(/\[run (\d+)\]/g)].map(match => Number(match[1]));
+    return numbers.length > 0 ? Math.max(...numbers) : 0;
 }
 
 /**
  * Trigger a run and prove *that run* produced the output.
  *
- * Running clears the Output channel before it starts, so the previous result disappears and
- * comes back. Watching for both edges is what distinguishes "this run worked" from "the last
- * one did" - the whole difficulty being that two runs of the same program look identical.
+ * Two runs of the same program print the same thing, so the only way to tell them apart is to
+ * count them: each run tags its output `[run N]`. Waiting for a higher number is exact, where
+ * waiting for the output to empty and refill misses the gap whenever a warm run finishes
+ * between two polls - and then passes for the wrong reason.
  *
- * Use this for every assertion about a run. `waitForText` alone is only safe for text that
- * cannot already be present.
+ * The number rides on the closing timings line as well as the header, because the Output view
+ * virtualises its DOM: on a long run the header scrolls out of existence.
  */
 async function expectRunProduces(page, trigger, needle, timeout) {
-    const wanted = needle.replace(/\s+/g, " ").trim();
-    const wasPresent = (await visibleText(page)).includes(wanted);
+    const before = lastRunNumber(await readOutput(page));
     await trigger();
-
-    if (wasPresent) {
-        // Poll fast: the gap between the channel clearing and the result arriving is the run
-        // itself, which for a warm toolchain is about a second.
-        await page.waitForFunction(
-            text => !document.body.innerText.replace(/\s+/g, " ").includes(text),
-            wanted,
-            { timeout: 60_000, polling: 50 },
-        );
-    }
-    await waitForText(page, wanted, timeout);
+    await waitFor(page, readOutput, text => lastRunNumber(text) > before, `a run after #${before}`, timeout);
+    await waitForOutputText(page, needle, timeout);
 }
 
 /**
@@ -173,15 +212,27 @@ const browser = await chromium.launch({
 let failures = 0;
 let page;
 
-/** What the workbench looked like when an expectation failed. */
+/**
+ * What the workbench looked like when an expectation failed.
+ *
+ * Every assertion here reads the Output view, so that is what a failure has to show. An
+ * earlier version dumped the head of `document.body.innerText`, which is the menu bar and the
+ * editor - identical whether the run never started, failed to compile, or printed something
+ * unexpected. The tail of the Output view distinguishes all three at a glance.
+ */
 async function describePage() {
     try {
-        return await page.evaluate(() => ({
-            title: document.title,
-            seeded: localStorage.getItem("yukibana.workspace.seeded"),
-            shell: !!document.querySelector(".theia-ApplicationShell"),
-            body: document.body.innerText.replace(/\s+/g, " ").slice(0, 400),
-        }));
+        const output = await readOutput(page);
+        return {
+            ...(await page.evaluate(() => ({
+                title: document.title,
+                seeded: localStorage.getItem("yukibana.workspace.seeded"),
+                shell: !!document.querySelector(".theia-ApplicationShell"),
+                outputOpen: !!document.querySelector("#outputView"),
+            }))),
+            status: await readText(page, "#theia-statusBar"),
+            output: output.length > 600 ? `...${output.slice(-600)}` : output,
+        };
     } catch (error) {
         return { unavailable: String(error) };
     }
@@ -220,7 +271,7 @@ try {
     await check("runs the sample program and shows its output", async () => {
         // The toolchain downloads and instantiates ~35 MB on first use.
         await expectRunProduces(page, () => runCommand(page, "Scala: Run as JavaScript"), CHECKS_PASSED, 300_000);
-        await waitForText(page, "3628800", 30_000);
+        await waitForOutputText(page, "3628800", 30_000);
     });
 
     await check("runs from the toolbar button, without the command palette", async () => {
@@ -244,7 +295,7 @@ try {
 
     await check("links and runs the program as WebAssembly", async () => {
         await expectRunProduces(page, () => runCommand(page, "Scala: Run as WebAssembly"), CHECKS_PASSED, 300_000);
-        await waitForText(page, "KB WebAssembly", 30_000);
+        await waitForOutputText(page, "KB WebAssembly", 30_000);
     });
 
     await check("reports compiler errors in the Problems view", async () => {
@@ -253,7 +304,7 @@ try {
         await page.keyboard.type('\nval broken: Int = "text"\n');
         await page.keyboard.press("Escape");
         await runCommand(page, "Scala: Compile");
-        await waitForText(page, "Compilation failed with 1 error", 300_000);
+        await waitForOutputText(page, "Compilation failed with 1 error", 300_000);
 
 
         // The markers we publish drive Theia's problem counter.
@@ -267,8 +318,8 @@ try {
         );
 
         // The build log carries the compiler's own rendering of the error.
-        await waitForText(page, "Found:", 30_000);
-        await waitForText(page, "Required: Int", 10_000);
+        await waitForOutputText(page, "Found:", 30_000);
+        await waitForOutputText(page, "Required: Int", 10_000);
     });
 
 
@@ -289,9 +340,9 @@ try {
         await page.keyboard.press("Escape");
         await page.keyboard.press("Control+s");
 
-        // Fresh rather than clear-then-fill: this text has never been printed before, and the
-        // save may land while the run that ticking the box started is still going.
-        await waitForFreshText(page, "autorun 42", 300_000);
+        // Scoped to the Output view, so the source line in the editor cannot satisfy it - and
+        // the value is computed, so only a run that actually happened can print it.
+        await waitForOutputText(page, "autorun 42", 300_000);
 
         await autorun.uncheck();
         assert(!(await autorun.isChecked()), "unticking autorun should untick the box");

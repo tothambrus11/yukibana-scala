@@ -35,10 +35,11 @@ and ticking the box runs it immediately rather than waiting for the next save. W
 off, saving still compiles for diagnostics — squiggles without the program running — unless
 `yukibana.compileOnSave` is off too.
 
-Autorun's state lives in the contribution and is *mirrored* to the preference, not read from
-it. A controlled checkbox has to change the moment it is clicked, and a preference write is
-asynchronous and in a browser-only workbench may not land at all; reading it back made the box
-tick and snap straight back.
+Autorun's state lives in the contribution and is *mirrored* to the preference rather than
+re-read on every render. A controlled checkbox has to change the moment it is clicked, and a
+preference write is asynchronous and in a browser-only workbench may not land at all; rendering
+from the preference made the box tick and snap straight back. The preference is still read at
+startup and whenever it changes, so Settings and the checkbox agree.
 
 ### What the workspace starts with
 
@@ -70,18 +71,30 @@ npm run test:examples   # milliseconds, no browser: the seeding rules and the ex
 npm run test:ide        # the above, then the browser suite
 ```
 
-Assertions about a *run* must use `expectRunProduces`, never `waitForText`. The visible text
-includes the editor and the Output view, and a program's output stays on screen between tests,
-so waiting for a string that is already there succeeds without anything happening - which is
-how a toolbar test once reported success while the button did nothing. `waitForFreshText`
-fails loudly if the text is already present, and `expectRunProduces` watches the Output clear
-and refill, which is what distinguishes this run from the last one.
+Three rules, all learned the hard way:
+
+- **Read through `readText`, never `innerText` directly.** The editor and the Output view are
+  both Monaco, which renders spaces as non-breaking spaces: `[run 1]` on screen is
+  `[run\u00a01]` in the document, and a pattern written with an ordinary space matches
+  nothing. `readText` normalises whitespace, every helper below is built on it, and predicates
+  are applied to what it returns. A predicate that skipped it once cost three tests a
+  five-minute timeout each while the runs they waited for sat finished on screen.
+- **Assert on the Output view, not the page.** `waitForOutputText` reads `#outputView`;
+  `document.body.innerText` also covers the editor, so an assertion meant for a program's
+  output can be satisfied by its *source*.
+- **Start a run with `expectRunProduces`.** Two runs of the same program print the same thing,
+  so it counts them instead: `run()` tags its output `[run N]`, and the helper waits for that
+  number to advance. Waiting for text alone succeeds whether or not anything ran - which is how
+  a toolbar test once reported success while the button did nothing.
+
+Waiting is `waitFor`, which polls in Node rather than shipping the predicate into the page:
+predicates stay ordinary closures, and a timeout reports what it wanted *and* what it saw.
 
 ## How the engine is loaded
 
-The Theia frontend does **not** bundle the engine or the 62 MB toolchain. The extension
-imports `./toolchain/host/index.js` at runtime and the engine fetches
-`./toolchain/manifest.json` from there, both configurable through preferences.
+The Theia frontend does **not** bundle the engine or the ~35 MB toolchain. The extension reads
+`./toolchain-current.json` at runtime to find the distribution in use, imports its host module
+and points the engine at its manifest - all three configurable through preferences.
 
 That keeps webpack out of the picture for the parts that are plain ES modules and large
 binaries, lets the toolchain be replaced (or served from a CDN) without rebuilding the IDE,
@@ -116,4 +129,6 @@ Problems view.
 - **Programs run in the compiler's worker**, so a runaway loop blocks further compilation. A
   sandboxed iframe per run is the fix.
 - **No stdin.** `readLine` has nothing to read.
-- **Macros are unsupported** by the underlying compiler build.
+- **The first macro is slow.** Quoted macros work, but the first one in a session costs a
+  22 MB download and about a minute while the compiler relinks a copy of itself; see
+  [the toolchain notes](toolchain.md).

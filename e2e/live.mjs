@@ -54,8 +54,10 @@ try {
 
   const finished = await page.waitForFunction(
     () => {
-      const text = document.body.innerText || "";
-      if (/squares:\s*1/.test(text)) return { ok: true, text: text.slice(0, 400) };
+      // Normalised first: the workbench is Monaco, which renders spaces as non-breaking
+      // spaces, so a pattern written with an ordinary space never matches the raw text.
+      const text = (document.body.innerText || "").replace(/\s+/g, " ");
+      if (/All \d+ checks passed\./.test(text)) return { ok: true, text: text.slice(0, 400) };
       if (/Failed to fetch|Could not load|failed/i.test(text)) return { ok: false, text: text.slice(0, 800) };
       return null;
     },

@@ -2,6 +2,9 @@
 
 export const SCALA_LANGUAGE_ID = 'scala';
 
+/** The extension that makes a file ours, spelled once. */
+export const SCALA_EXTENSION = '.scala';
+
 /** Which linker backend produces the artifact that runs in the page. */
 export type LinkTarget = 'js' | 'wasm';
 
