@@ -29,6 +29,7 @@ const STAGES = {
   compiler: "Loading compiler (31 MB WebAssembly)...",
   ready: "Toolchain ready",
   compiling: "Compiling...",
+  macros: "Preparing macro support (one-off, about a minute)...",
   linking: "Linking...",
   running: "Running...",
 };

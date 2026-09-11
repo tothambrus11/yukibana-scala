@@ -18,6 +18,20 @@ interface EngineModule {
 
 export type EngineState = 'idle' | 'loading' | 'ready' | 'failed' | 'busy';
 
+/** What the engine's progress stages mean to someone watching the status bar. */
+const STAGE_LABELS: Record<string, string> = {
+    manifest: 'reading manifest',
+    classpath: 'downloading classpath',
+    compiler: 'loading compiler',
+    ready: 'ready',
+    // Macro support links a second copy of the compiler, which takes about a minute the
+    // first time a workspace uses one. Saying so beats a status bar that looks stuck.
+    macros: 'preparing macro support (one-off, ~1 min)',
+    compiling: 'compiling',
+    linking: 'linking',
+    running: 'running',
+};
+
 export interface EngineStatus {
     state: EngineState;
     detail?: string;
@@ -106,7 +120,7 @@ export class ScalaEngineService {
                 manifestUrl: new URL(this.manifestUrl, base).href,
             });
 
-            engine.on('progress', ({ stage }: { stage: string }) => this.setStatus('loading', stage));
+            engine.on('progress', ({ stage }: { stage: string }) => this.setStatus('loading', STAGE_LABELS[stage] ?? stage));
             engine.on('stdout', ({ chunk }: { chunk: string }) => this.onOutputEmitter.fire(chunk));
 
             this.info = await engine.init();

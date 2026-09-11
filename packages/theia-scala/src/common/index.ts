@@ -8,10 +8,16 @@ export type LinkTarget = 'js' | 'wasm';
 export interface ScalaDiagnostic {
     severity: 'error' | 'warning' | 'info';
     code: string | null;
+    /** The error's name, e.g. `TypeMismatch`; only structured diagnostics carry it. */
+    name?: string | null;
     /** Absolute path inside the engine's virtual workspace, e.g. `/workspace/Main.scala`. */
     file: string | null;
+    /** 1-based line, 0-based column - what the compiler's own output shows. */
     line: number | null;
     column: number | null;
+    /** The end of the offending range, when the compiler reported one. */
+    endLine?: number | null;
+    endColumn?: number | null;
     message: string;
     text: string;
 }

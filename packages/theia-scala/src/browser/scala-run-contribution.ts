@@ -305,10 +305,16 @@ export class ScalaRunContribution
         // The compiler reports 1-based lines and 0-based columns; LSP wants both 0-based.
         const line = Math.max(0, (diagnostic.line ?? 1) - 1);
         const character = Math.max(0, diagnostic.column ?? 0);
+        // Underline the expression the compiler objected to, when it said how far it runs.
+        // Without an end, one character is all we can honestly claim.
+        const end =
+            diagnostic.endLine != null && diagnostic.endColumn != null
+                ? { line: Math.max(line, diagnostic.endLine - 1), character: Math.max(0, diagnostic.endColumn) }
+                : { line, character: character + 1 };
         return {
             range: {
                 start: { line, character },
-                end: { line, character: character + 1 },
+                end,
             },
             severity:
                 diagnostic.severity === 'error'

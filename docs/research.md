@@ -74,8 +74,13 @@ Serving that directory and driving it with headless Chromium 141:
 - **JSPI required.** The compiler bundle uses `WebAssembly.JSTag`, `WebAssembly.Suspending`
   and `WebAssembly.promising` (JavaScript Promise Integration) because the in-browser
   classpath/archive reads are asynchronous. Chrome/Edge 137+ have JSPI on by default.
-- **No macros.** Macro expansion is unsupported in the Scala.js-hosted compiler; this is the
-  most significant language-level gap (it also rules out most of the ecosystem's inline/derived code).
+- **~~No macros.~~** *Corrected 2026-09-10.* This was read off the `browser` branch's README
+  ("Macro expansion remains unsupported") and was only ever true of that branch. Macros are
+  supported from the fork's `macro` branch onward, and in
+  [`univalence-xyz/scala3-on-wasm`](https://github.com/univalence-xyz/scala3-on-wasm), which
+  continues the same lineage. The compiler expands a macro by interrupting itself, having the
+  host relink the macro's freshly-emitted IR together with a copy of the compiler, importing
+  that, and re-entering the compile. See the toolchain's `docs/fork.md`.
 - **JS output only** in the fork. Its linker bridge is configured with `ModuleKind.ESModule`
   and no Wasm flag, so user programs link to JavaScript even though the *compiler* is
   WebAssembly. We lift this: `toolchain/src-sjs/yukibana/WasmLinkerBridge.scala` adds a
